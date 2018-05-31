@@ -1,13 +1,24 @@
 #if defined(_MSC_VER) && (_MSC_VER >= 1800)
 // eliminating duplicated round() declaration
 #define HAVE_ROUND 1
+#pragma warning(push)
+#pragma warning(disable:5033)  // 'register' is no longer a supported storage class
 #endif
-
+#include <math.h>
 #include <Python.h>
+#if defined(_MSC_VER) && (_MSC_VER >= 1800)
+#pragma warning(pop)
+#endif
 
 #define MODULESTR "cv2"
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/ndarrayobject.h>
+
+#if PY_MAJOR_VERSION >= 3
+#  define CV_PYTHON_TYPE_HEAD_INIT() PyVarObject_HEAD_INIT(&PyType_Type, 0)
+#else
+#  define CV_PYTHON_TYPE_HEAD_INIT() PyObject_HEAD_INIT(&PyType_Type) 0,
+#endif
 
 #include "pyopencv_generated_include.h"
 #include "opencv2/core/types_c.h"
@@ -16,6 +27,7 @@
 
 #include "pycompat.hpp"
 
+#include <map>
 
 static PyObject* opencv_error = 0;
 
@@ -147,7 +159,7 @@ public:
         return u;
     }
 
-    UMatData* allocate(int dims0, const int* sizes, int type, void* data, size_t* step, int flags, UMatUsageFlags usageFlags) const
+    UMatData* allocate(int dims0, const int* sizes, int type, void* data, size_t* step, int flags, UMatUsageFlags usageFlags) const CV_OVERRIDE
     {
         if( data != 0 )
         {
@@ -176,12 +188,12 @@ public:
         return allocate(o, dims0, sizes, type, step);
     }
 
-    bool allocate(UMatData* u, int accessFlags, UMatUsageFlags usageFlags) const
+    bool allocate(UMatData* u, int accessFlags, UMatUsageFlags usageFlags) const CV_OVERRIDE
     {
         return stdAllocator->allocate(u, accessFlags, usageFlags);
     }
 
-    void deallocate(UMatData* u) const
+    void deallocate(UMatData* u) const CV_OVERRIDE
     {
         if(!u)
             return;
@@ -210,7 +222,7 @@ PyObject* pyopencv_from(const T& src);
 
 enum { ARG_NONE = 0, ARG_MAT = 1, ARG_SCALAR = 2 };
 
-// special case, when the convertor needs full ArgInfo structure
+// special case, when the converter needs full ArgInfo structure
 static bool pyopencv_to(PyObject* o, Mat& m, const ArgInfo info)
 {
     bool allowND = true;
@@ -394,6 +406,24 @@ template<>
 bool pyopencv_to(PyObject* o, Mat& m, const char* name)
 {
     return pyopencv_to(o, m, ArgInfo(name, 0));
+}
+
+template<typename _Tp, int m, int n>
+bool pyopencv_to(PyObject* o, Matx<_Tp, m, n>& mx, const ArgInfo info)
+{
+    Mat tmp;
+    if (!pyopencv_to(o, tmp, info)) {
+        return false;
+    }
+
+    tmp.copyTo(mx);
+    return true;
+}
+
+template<typename _Tp, int m, int n>
+bool pyopencv_to(PyObject* o, Matx<_Tp, m, n>& mx, const char* name)
+{
+    return pyopencv_to(o, mx, ArgInfo(name, 0));
 }
 
 template <typename T>
@@ -683,18 +713,17 @@ PyObject* pyopencv_from(const UMat& m) {
     return o;
 }
 
-template<>
-bool pyopencv_to(PyObject *o, Scalar& s, const char *name)
+static bool pyopencv_to(PyObject *o, Scalar& s, const ArgInfo info)
 {
     if(!o || o == Py_None)
         return true;
     if (PySequence_Check(o)) {
-        PyObject *fi = PySequence_Fast(o, name);
+        PyObject *fi = PySequence_Fast(o, info.name);
         if (fi == NULL)
             return false;
         if (4 < PySequence_Fast_GET_SIZE(fi))
         {
-            failmsg("Scalar value for argument '%s' is longer than 4", name);
+            failmsg("Scalar value for argument '%s' is longer than 4", info.name);
             return false;
         }
         for (Py_ssize_t i = 0; i < PySequence_Fast_GET_SIZE(fi); i++) {
@@ -702,7 +731,7 @@ bool pyopencv_to(PyObject *o, Scalar& s, const char *name)
             if (PyFloat_Check(item) || PyInt_Check(item)) {
                 s[(int)i] = PyFloat_AsDouble(item);
             } else {
-                failmsg("Scalar value for argument '%s' is not numeric", name);
+                failmsg("Scalar value for argument '%s' is not numeric", info.name);
                 return false;
             }
         }
@@ -711,11 +740,17 @@ bool pyopencv_to(PyObject *o, Scalar& s, const char *name)
         if (PyFloat_Check(o) || PyInt_Check(o)) {
             s[0] = PyFloat_AsDouble(o);
         } else {
-            failmsg("Scalar value for argument '%s' is not numeric", name);
+            failmsg("Scalar value for argument '%s' is not numeric", info.name);
             return false;
         }
     }
     return true;
+}
+
+template<>
+bool pyopencv_to(PyObject *o, Scalar& s, const char *name)
+{
+    return pyopencv_to(o, s, ArgInfo(name, 0));
 }
 
 template<>
@@ -1024,13 +1059,139 @@ PyObject* pyopencv_from(const Point3f& p)
     return Py_BuildValue("(ddd)", p.x, p.y, p.z);
 }
 
+static bool pyopencv_to(PyObject* obj, Vec4d& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "dddd", &v[0], &v[1], &v[2], &v[3]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec4d& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec4f& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "ffff", &v[0], &v[1], &v[2], &v[3]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec4f& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec4i& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "iiii", &v[0], &v[1], &v[2], &v[3]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec4i& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec3d& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "ddd", &v[0], &v[1], &v[2]) > 0;
+}
 template<>
 bool pyopencv_to(PyObject* obj, Vec3d& v, const char* name)
 {
-    (void)name;
-    if(!obj)
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec3f& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
         return true;
-    return PyArg_ParseTuple(obj, "ddd", &v[0], &v[1], &v[2]) > 0;
+    return PyArg_ParseTuple(obj, "fff", &v[0], &v[1], &v[2]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec3f& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec3i& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "iii", &v[0], &v[1], &v[2]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec3i& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec2d& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "dd", &v[0], &v[1]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec2d& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec2f& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "ff", &v[0], &v[1]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec2f& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+static bool pyopencv_to(PyObject* obj, Vec2i& v, ArgInfo info)
+{
+    (void)info;
+    if (!obj)
+        return true;
+    return PyArg_ParseTuple(obj, "ii", &v[0], &v[1]) > 0;
+}
+template<>
+bool pyopencv_to(PyObject* obj, Vec2i& v, const char* name)
+{
+    return pyopencv_to(obj, v, ArgInfo(name, 0));
+}
+
+template<>
+PyObject* pyopencv_from(const Vec4d& v)
+{
+    return Py_BuildValue("(dddd)", v[0], v[1], v[2], v[3]);
+}
+
+template<>
+PyObject* pyopencv_from(const Vec4f& v)
+{
+    return Py_BuildValue("(ffff)", v[0], v[1], v[2], v[3]);
+}
+
+template<>
+PyObject* pyopencv_from(const Vec4i& v)
+{
+    return Py_BuildValue("(iiii)", v[0], v[1], v[2], v[3]);
 }
 
 template<>
@@ -1040,9 +1201,33 @@ PyObject* pyopencv_from(const Vec3d& v)
 }
 
 template<>
+PyObject* pyopencv_from(const Vec3f& v)
+{
+    return Py_BuildValue("(fff)", v[0], v[1], v[2]);
+}
+
+template<>
+PyObject* pyopencv_from(const Vec3i& v)
+{
+    return Py_BuildValue("(iii)", v[0], v[1], v[2]);
+}
+
+template<>
 PyObject* pyopencv_from(const Vec2d& v)
 {
     return Py_BuildValue("(dd)", v[0], v[1]);
+}
+
+template<>
+PyObject* pyopencv_from(const Vec2f& v)
+{
+    return Py_BuildValue("(ff)", v[0], v[1]);
+}
+
+template<>
+PyObject* pyopencv_from(const Vec2i& v)
+{
+    return Py_BuildValue("(ii)", v[0], v[1]);
 }
 
 template<>
@@ -1352,6 +1537,57 @@ PyObject* pyopencv_from(const Moments& m)
 
 #include "pyopencv_custom_headers.h"
 
+static int OnError(int status, const char *func_name, const char *err_msg, const char *file_name, int line, void *userdata)
+{
+    PyGILState_STATE gstate;
+    gstate = PyGILState_Ensure();
+
+    PyObject *on_error = (PyObject*)userdata;
+    PyObject *args = Py_BuildValue("isssi", status, func_name, err_msg, file_name, line);
+
+    PyObject *r = PyObject_Call(on_error, args, NULL);
+    if (r == NULL) {
+        PyErr_Print();
+    } else {
+        Py_DECREF(r);
+    }
+
+    Py_DECREF(args);
+    PyGILState_Release(gstate);
+
+    return 0; // The return value isn't used
+}
+
+static PyObject *pycvRedirectError(PyObject*, PyObject *args, PyObject *kw)
+{
+    const char *keywords[] = { "on_error", NULL };
+    PyObject *on_error;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "O", (char**)keywords, &on_error))
+        return NULL;
+
+    if ((on_error != Py_None) && !PyCallable_Check(on_error))  {
+        PyErr_SetString(PyExc_TypeError, "on_error must be callable");
+        return NULL;
+    }
+
+    // Keep track of the previous handler parameter, so we can decref it when no longer used
+    static PyObject* last_on_error = NULL;
+    if (last_on_error) {
+        Py_DECREF(last_on_error);
+        last_on_error = NULL;
+    }
+
+    if (on_error == Py_None) {
+        ERRWRAP2(redirectError(NULL));
+    } else {
+        last_on_error = on_error;
+        Py_INCREF(last_on_error);
+        ERRWRAP2(redirectError(OnError, last_on_error));
+    }
+    Py_RETURN_NONE;
+}
+
 static void OnMouse(int event, int x, int y, int flags, void* param)
 {
     PyGILState_STATE gstate;
@@ -1386,7 +1622,19 @@ static PyObject *pycvSetMouseCallback(PyObject*, PyObject *args, PyObject *kw)
     if (param == NULL) {
         param = Py_None;
     }
-    ERRWRAP2(setMouseCallback(name, OnMouse, Py_BuildValue("OO", on_mouse, param)));
+    PyObject* py_callback_info = Py_BuildValue("OO", on_mouse, param);
+    static std::map<std::string, PyObject*> registered_callbacks;
+    std::map<std::string, PyObject*>::iterator i = registered_callbacks.find(name);
+    if (i != registered_callbacks.end())
+    {
+        Py_DECREF(i->second);
+        i->second = py_callback_info;
+    }
+    else
+    {
+        registered_callbacks.insert(std::pair<std::string, PyObject*>(std::string(name), py_callback_info));
+    }
+    ERRWRAP2(setMouseCallback(name, OnMouse, py_callback_info));
     Py_RETURN_NONE;
 }
 #endif
@@ -1401,6 +1649,8 @@ static void OnChange(int pos, void *param)
     PyObject *r = PyObject_Call(PyTuple_GetItem(o, 0), args, NULL);
     if (r == NULL)
         PyErr_Print();
+    else
+        Py_DECREF(r);
     Py_DECREF(args);
     PyGILState_Release(gstate);
 }
@@ -1420,7 +1670,20 @@ static PyObject *pycvCreateTrackbar(PyObject*, PyObject *args)
         PyErr_SetString(PyExc_TypeError, "on_change must be callable");
         return NULL;
     }
-    ERRWRAP2(createTrackbar(trackbar_name, window_name, value, count, OnChange, Py_BuildValue("OO", on_change, Py_None)));
+    PyObject* py_callback_info = Py_BuildValue("OO", on_change, Py_None);
+    std::string name = std::string(window_name) + ":" + std::string(trackbar_name);
+    static std::map<std::string, PyObject*> registered_callbacks;
+    std::map<std::string, PyObject*>::iterator i = registered_callbacks.find(name);
+    if (i != registered_callbacks.end())
+    {
+        Py_DECREF(i->second);
+        i->second = py_callback_info;
+    }
+    else
+    {
+        registered_callbacks.insert(std::pair<std::string, PyObject*>(name, py_callback_info));
+    }
+    ERRWRAP2(createTrackbar(trackbar_name, window_name, value, count, OnChange, py_callback_info));
     Py_RETURN_NONE;
 }
 
@@ -1443,6 +1706,8 @@ static void OnButtonChange(int state, void *param)
     PyObject *r = PyObject_Call(PyTuple_GetItem(o, 0), args, NULL);
     if (r == NULL)
         PyErr_Print();
+    else
+        Py_DECREF(r);
     Py_DECREF(args);
     PyGILState_Release(gstate);
 }
@@ -1466,7 +1731,21 @@ static PyObject *pycvCreateButton(PyObject*, PyObject *args, PyObject *kw)
         userdata = Py_None;
     }
 
-    ERRWRAP2(createButton(button_name, OnButtonChange, Py_BuildValue("OO", on_change, userdata), button_type, initial_button_state != 0));
+    PyObject* py_callback_info = Py_BuildValue("OO", on_change, userdata);
+    std::string name(button_name);
+
+    static std::map<std::string, PyObject*> registered_callbacks;
+    std::map<std::string, PyObject*>::iterator i = registered_callbacks.find(name);
+    if (i != registered_callbacks.end())
+    {
+        Py_DECREF(i->second);
+        i->second = py_callback_info;
+    }
+    else
+    {
+        registered_callbacks.insert(std::pair<std::string, PyObject*>(name, py_callback_info));
+    }
+    ERRWRAP2(createButton(button_name, OnButtonChange, py_callback_info, button_type, initial_button_state != 0));
     Py_RETURN_NONE;
 }
 #endif
@@ -1499,10 +1778,15 @@ static int convert_to_char(PyObject *o, char *dst, const char *name = "no_name")
 #include "pyopencv_generated_funcs.h"
 
 static PyMethodDef special_methods[] = {
+  {"redirectError", (PyCFunction)pycvRedirectError, METH_VARARGS | METH_KEYWORDS, "redirectError(onError) -> None"},
 #ifdef HAVE_OPENCV_HIGHGUI
   {"createTrackbar", pycvCreateTrackbar, METH_VARARGS, "createTrackbar(trackbarName, windowName, value, count, onChange) -> None"},
   {"createButton", (PyCFunction)pycvCreateButton, METH_VARARGS | METH_KEYWORDS, "createButton(buttonName, onChange [, userData, buttonType, initialButtonState]) -> None"},
   {"setMouseCallback", (PyCFunction)pycvSetMouseCallback, METH_VARARGS | METH_KEYWORDS, "setMouseCallback(windowName, onMouse [, param]) -> None"},
+#endif
+#ifdef HAVE_OPENCV_DNN
+  {"dnn_registerLayer", (PyCFunction)pyopencv_cv_dnn_registerLayer, METH_VARARGS | METH_KEYWORDS, "registerLayer(type, class) -> None"},
+  {"dnn_unregisterLayer", (PyCFunction)pyopencv_cv_dnn_unregisterLayer, METH_VARARGS | METH_KEYWORDS, "unregisterLayer(type) -> None"},
 #endif
   {NULL, NULL},
 };

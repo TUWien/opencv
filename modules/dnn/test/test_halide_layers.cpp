@@ -10,8 +10,7 @@
 
 #include "test_precomp.hpp"
 
-namespace cvtest
-{
+namespace opencv_test { namespace {
 
 #ifdef HAVE_HALIDE
 using namespace cv;
@@ -41,17 +40,18 @@ TEST(Padding_Halide, Accuracy)
 {
     static const int kNumRuns = 10;
     std::vector<int> paddings(8);
+    cv::RNG& rng = cv::theRNG();
     for (int t = 0; t < kNumRuns; ++t)
     {
         for (int i = 0; i < paddings.size(); ++i)
-            paddings[i] = rand() % 5;
+            paddings[i] = rng(5);
 
         LayerParams lp;
         lp.set("paddings", DictValue::arrayInt<int*>(&paddings[0], paddings.size()));
         lp.type = "Padding";
         lp.name = "testLayer";
 
-        Mat input({1 + rand() % 10, 1 + rand() % 10, 1 + rand() % 10, 1 + rand() % 10}, CV_32F);
+        Mat input({1 + rng(10), 1 + rng(10), 1 + rng(10), 1 + rng(10)}, CV_32F);
         test(lp, input);
     }
 }
@@ -634,7 +634,7 @@ TEST_P(Eltwise, Accuracy)
     eltwiseParam.set("operation", op);
     if (op == "sum" && weighted)
     {
-        RNG rng = cv::theRNG();
+        RNG& rng = cv::theRNG();
         std::vector<float> coeff(1 + numConv);
         for (int i = 0; i < coeff.size(); ++i)
         {
@@ -712,4 +712,4 @@ TEST(MixedBackends_Halide_Default_Halide, Accuracy)
 }
 #endif  // HAVE_HALIDE
 
-}  // namespace cvtest
+}} // namespace
