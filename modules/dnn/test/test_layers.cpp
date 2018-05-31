@@ -10,7 +10,7 @@
 //                           License Agreement
 //                For Open Source Computer Vision Library
 //
-// Copyright (C) 2013, OpenCV Foundation, all rights reserved.
+// Copyright (C) 2017, Intel Corporation, all rights reserved.
 // Third party copyrights are property of their respective owners.
 //
 // Redistribution and use in source and binary forms, with or without modification,
@@ -98,7 +98,8 @@ void runLayer(Ptr<Layer> layer, std::vector<Mat> &inpBlobs, std::vector<Mat> &ou
 }
 
 
-void testLayerUsingCaffeModels(String basename, bool useCaffeModel = false, bool useCommonInputBlob = true)
+void testLayerUsingCaffeModels(String basename, int targetId = DNN_TARGET_CPU,
+                               bool useCaffeModel = false, bool useCommonInputBlob = true)
 {
     String prototxt = _tf(basename + ".prototxt");
     String caffemodel = _tf(basename + ".caffemodel");
@@ -111,6 +112,9 @@ void testLayerUsingCaffeModels(String basename, bool useCaffeModel = false, bool
     Net net = readNetFromCaffe(prototxt, (useCaffeModel) ? caffemodel : String());
     ASSERT_FALSE(net.empty());
 
+    net.setPreferableBackend(DNN_BACKEND_DEFAULT);
+    net.setPreferableTarget(targetId);
+
     Mat inp = blobFromNPY(inpfile);
     Mat ref = blobFromNPY(outfile);
 
@@ -122,47 +126,82 @@ void testLayerUsingCaffeModels(String basename, bool useCaffeModel = false, bool
 
 TEST(Layer_Test_Softmax, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_softmax");
+    testLayerUsingCaffeModels("layer_softmax");
+}
+
+OCL_TEST(Layer_Test_Softmax, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_softmax", DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Test_LRN_spatial, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_lrn_spatial");
+    testLayerUsingCaffeModels("layer_lrn_spatial");
+}
+
+OCL_TEST(Layer_Test_LRN_spatial, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_lrn_spatial", DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Test_LRN_channels, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_lrn_channels");
+    testLayerUsingCaffeModels("layer_lrn_channels");
+}
+
+OCL_TEST(Layer_Test_LRN_channels, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_lrn_channels", DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Test_Convolution, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_convolution", true);
+    testLayerUsingCaffeModels("layer_convolution", DNN_TARGET_CPU, true);
+}
+
+OCL_TEST(Layer_Test_Convolution, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_convolution", DNN_TARGET_OPENCL, true);
 }
 
 TEST(Layer_Test_DeConvolution, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_deconvolution", true, false);
+    testLayerUsingCaffeModels("layer_deconvolution", DNN_TARGET_CPU, true, false);
 }
 
 TEST(Layer_Test_InnerProduct, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_inner_product", true);
+    testLayerUsingCaffeModels("layer_inner_product", DNN_TARGET_CPU, true);
+}
+
+OCL_TEST(Layer_Test_InnerProduct, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_inner_product", DNN_TARGET_OPENCL, true);
 }
 
 TEST(Layer_Test_Pooling_max, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_pooling_max");
+    testLayerUsingCaffeModels("layer_pooling_max");
+}
+
+OCL_TEST(Layer_Test_Pooling_max, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_pooling_max", DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Test_Pooling_ave, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_pooling_ave");
+    testLayerUsingCaffeModels("layer_pooling_ave");
+}
+
+OCL_TEST(Layer_Test_Pooling_ave, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_pooling_ave", DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Test_MVN, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_mvn");
+    testLayerUsingCaffeModels("layer_mvn");
 }
 
 void testReshape(const MatShape& inputShape, const MatShape& targetShape,
@@ -207,22 +246,42 @@ TEST(Layer_Test_Reshape, Accuracy)
 
 TEST(Layer_Test_BatchNorm, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_batch_norm", true);
+    testLayerUsingCaffeModels("layer_batch_norm", DNN_TARGET_CPU, true);
 }
 
 TEST(Layer_Test_ReLU, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_relu");
+    testLayerUsingCaffeModels("layer_relu");
+}
+
+OCL_TEST(Layer_Test_ReLU, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_relu", DNN_TARGET_OPENCL);
 }
 
 TEST(Layer_Test_Dropout, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_dropout");
+    testLayerUsingCaffeModels("layer_dropout");
 }
 
 TEST(Layer_Test_Concat, Accuracy)
 {
-     testLayerUsingCaffeModels("layer_concat");
+    testLayerUsingCaffeModels("layer_concat");
+}
+
+OCL_TEST(Layer_Test_Concat, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_concat", DNN_TARGET_OPENCL);
+}
+
+TEST(Layer_Test_Eltwise, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_eltwise");
+}
+
+TEST(Layer_Test_PReLU, Accuracy)
+{
+    testLayerUsingCaffeModels("layer_prelu", DNN_TARGET_CPU, true);
 }
 
 //template<typename XMat>
@@ -289,7 +348,8 @@ public:
 
     Layer_LSTM_Test() {}
 
-    void init(const MatShape &inpShape_, const MatShape &outShape_)
+    void init(const MatShape &inpShape_, const MatShape &outShape_,
+              bool produceCellOutput, bool useTimestampDim)
     {
         numInp = total(inpShape_);
         numOut = total(outShape_);
@@ -298,8 +358,15 @@ public:
         Wx = Mat::ones(4 * numOut, numInp, CV_32F);
         b  = Mat::ones(4 * numOut, 1, CV_32F);
 
-        layer = LSTMLayer::create(LayerParams());
-        layer->setWeights(Wh, Wx, b);
+        LayerParams lp;
+        lp.blobs.resize(3);
+        lp.blobs[0] = Wh;
+        lp.blobs[1] = Wx;
+        lp.blobs[2] = b;
+        lp.set<bool>("produce_cell_output", produceCellOutput);
+        lp.set<bool>("use_timestamp_dim", useTimestampDim);
+
+        layer = LSTMLayer::create(lp);
         layer->setOutShape(outShape_);
     }
 };
@@ -312,9 +379,7 @@ TEST_F(Layer_LSTM_Test, get_set_test)
     MatShape inpResShape = concat(shape(TN), inpShape);
     MatShape outResShape = concat(shape(TN), outShape);
 
-    init(inpShape, outShape);
-    layer->setProduceCellOutput(true);
-    layer->setUseTimstampsDim(false);
+    init(inpShape, outShape, true, false);
     layer->setOutShape(outShape);
 
     Mat C((int)outResShape.size(), &outResShape[0], CV_32F);
@@ -344,12 +409,12 @@ TEST_F(Layer_LSTM_Test, get_set_test)
 
 TEST(Layer_LSTM_Test_Accuracy_with_, CaffeRecurrent)
 {
-    Ptr<LSTMLayer> layer = LSTMLayer::create(LayerParams());
-
-    Mat Wx = blobFromNPY(_tf("lstm.prototxt.w_0.npy"));
-    Mat Wh = blobFromNPY(_tf("lstm.prototxt.w_2.npy"));
-    Mat b  = blobFromNPY(_tf("lstm.prototxt.w_1.npy"));
-    layer->setWeights(Wh, Wx, b);
+    LayerParams lp;
+    lp.blobs.resize(3);
+    lp.blobs[0] = blobFromNPY(_tf("lstm.prototxt.w_2.npy"));  // Wh
+    lp.blobs[1] = blobFromNPY(_tf("lstm.prototxt.w_0.npy"));  // Wx
+    lp.blobs[2] = blobFromNPY(_tf("lstm.prototxt.w_1.npy"));  // bias
+    Ptr<LSTMLayer> layer = LSTMLayer::create(lp);
 
     Mat inp = blobFromNPY(_tf("recurrent.input.npy"));
     std::vector<Mat> inputs(1, inp), outputs;
@@ -418,6 +483,38 @@ TEST_F(Layer_RNN_Test, get_set_test)
     EXPECT_EQ(outputs.size(), 2u);
     EXPECT_EQ(shape(outputs[0]), shape(nT, nS, nO));
     EXPECT_EQ(shape(outputs[1]), shape(nT, nS, nH));
+}
+
+void testLayerUsingDarknetModels(String basename, bool useDarknetModel = false, bool useCommonInputBlob = true)
+{
+    String cfg = _tf(basename + ".cfg");
+    String weights = _tf(basename + ".weights");
+
+    String inpfile = (useCommonInputBlob) ? _tf("blob.npy") : _tf(basename + ".input.npy");
+    String outfile = _tf(basename + ".npy");
+
+    cv::setNumThreads(cv::getNumberOfCPUs());
+
+    Net net = readNetFromDarknet(cfg, (useDarknetModel) ? weights : String());
+    ASSERT_FALSE(net.empty());
+
+    Mat inp = blobFromNPY(inpfile);
+    Mat ref = blobFromNPY(outfile);
+
+    net.setInput(inp, "data");
+    Mat out = net.forward();
+
+    normAssert(ref, out);
+}
+
+TEST(Layer_Test_Region, Accuracy)
+{
+    testLayerUsingDarknetModels("region", false, false);
+}
+
+TEST(Layer_Test_Reorg, Accuracy)
+{
+    testLayerUsingDarknetModels("reorg", false, false);
 }
 
 }
