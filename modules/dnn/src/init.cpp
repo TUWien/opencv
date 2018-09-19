@@ -76,14 +76,15 @@ void initializeLayerFactory()
 {
     CV_TRACE_FUNCTION();
 
-    static ProtobufShutdown protobufShutdown; (void)protobufShutdown;
+    static ProtobufShutdown protobufShutdown; CV_UNUSED(protobufShutdown);
 
     CV_DNN_REGISTER_LAYER_CLASS(Slice,          SliceLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Split,          SplitLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Concat,         ConcatLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Reshape,        ReshapeLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Flatten,        FlattenLayer);
-    CV_DNN_REGISTER_LAYER_CLASS(ResizeNearestNeighbor, ResizeNearestNeighborLayer);
+    CV_DNN_REGISTER_LAYER_CLASS(Resize,         ResizeLayer);
+    CV_DNN_REGISTER_LAYER_CLASS(Interp,         InterpLayer);
     CV_DNN_REGISTER_LAYER_CLASS(CropAndResize,  CropAndResizeLayer);
 
     CV_DNN_REGISTER_LAYER_CLASS(Convolution,    ConvolutionLayer);
@@ -115,6 +116,7 @@ void initializeLayerFactory()
     CV_DNN_REGISTER_LAYER_CLASS(Crop,           CropLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Eltwise,        EltwiseLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Permute,        PermuteLayer);
+    CV_DNN_REGISTER_LAYER_CLASS(ShuffleChannel, ShuffleChannelLayer);
     CV_DNN_REGISTER_LAYER_CLASS(PriorBox,       PriorBoxLayer);
     CV_DNN_REGISTER_LAYER_CLASS(PriorBoxClustered, PriorBoxLayer);
     CV_DNN_REGISTER_LAYER_CLASS(Reorg,          ReorgLayer);

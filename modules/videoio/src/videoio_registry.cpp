@@ -6,6 +6,8 @@
 
 #include "videoio_registry.hpp"
 
+#include "opencv2/videoio/registry.hpp"
+
 #include "cap_intelperc.hpp"
 #include "cap_dshow.hpp"
 
@@ -70,16 +72,16 @@ static const struct VideoBackendInfo builtin_backends[] =
 
     // Windows
 #ifdef WINRT_VIDEO
-    DECLARE_BACKEND(CAP_WINRT, "WINRT", MODE_CAPTURE_BY_FILENAME),
+    DECLARE_BACKEND(CAP_WINRT, "WINRT", MODE_CAPTURE_BY_INDEX),
 #endif
 #ifdef HAVE_MSMF
     DECLARE_BACKEND(CAP_MSMF, "MSMF", MODE_CAPTURE_ALL | MODE_WRITER),
 #endif
+#ifdef HAVE_DSHOW
+    DECLARE_BACKEND(CAP_DSHOW, "DSHOW", MODE_CAPTURE_BY_INDEX),
+#endif
 #ifdef HAVE_VFW
     DECLARE_BACKEND(CAP_VFW, "VFW", MODE_CAPTURE_ALL | MODE_WRITER),
-#endif
-#ifdef HAVE_DSHOW
-    DECLARE_BACKEND(CAP_DSHOW, "DSHOW", MODE_CAPTURE_ALL),
 #endif
 
     // Linux, some Unix
@@ -98,7 +100,7 @@ static const struct VideoBackendInfo builtin_backends[] =
     DECLARE_BACKEND(CAP_OPENNI2, "OPENNI2", MODE_CAPTURE_ALL),
 #endif
 #ifdef HAVE_INTELPERC
-    DECLARE_BACKEND(CAP_INTELPERC, "INTEL_PERC", MODE_CAPTURE_ALL),
+    DECLARE_BACKEND(CAP_INTELPERC, "INTEL_PERC", MODE_CAPTURE_BY_INDEX),
 #endif
 
     // OpenCV file-based only
@@ -107,23 +109,23 @@ static const struct VideoBackendInfo builtin_backends[] =
 
     // special interfaces / stereo cameras / other SDKs
 #if defined(HAVE_DC1394_2) || defined(HAVE_DC1394) || defined(HAVE_CMU1394)
-    DECLARE_BACKEND(CAP_FIREWIRE, "FIREWIRE", MODE_CAPTURE_ALL),
+    DECLARE_BACKEND(CAP_FIREWIRE, "FIREWIRE", MODE_CAPTURE_BY_INDEX),
 #endif
     // GigE
 #ifdef HAVE_PVAPI
-    DECLARE_BACKEND(CAP_PVAPI, "PVAPI", MODE_CAPTURE_ALL),
+    DECLARE_BACKEND(CAP_PVAPI, "PVAPI", MODE_CAPTURE_BY_INDEX),
 #endif
 #ifdef HAVE_XIMEA
     DECLARE_BACKEND(CAP_XIAPI, "XIMEA", MODE_CAPTURE_ALL),
 #endif
 #ifdef HAVE_GIGE_API
-    DECLARE_BACKEND(CAP_GIGANETIX, "GIGANETIX", MODE_CAPTURE_ALL),
+    DECLARE_BACKEND(CAP_GIGANETIX, "GIGANETIX", MODE_CAPTURE_BY_INDEX),
 #endif
 #ifdef HAVE_ARAVIS_API
-    DECLARE_BACKEND(CAP_ARAVIS, "ARAVIS", MODE_CAPTURE_ALL),
+    DECLARE_BACKEND(CAP_ARAVIS, "ARAVIS", MODE_CAPTURE_BY_INDEX),
 #endif
 #ifdef HAVE_UNICAP
-    DECLARE_BACKEND(CAP_UNICAP, "UNICAP", MODE_CAPTURE_BY_FILENAME),
+    DECLARE_BACKEND(CAP_UNICAP, "UNICAP", MODE_CAPTURE_BY_INDEX),
 #endif
 
 #ifdef HAVE_GPHOTO2
@@ -247,6 +249,8 @@ public:
         return g_instance;
     }
 
+    inline std::vector<VideoBackendInfo> getEnabledBackends() const { return enabledBackends; }
+
     inline std::vector<VideoBackendInfo> getAvailableBackends_CaptureByIndex() const
     {
         std::vector<VideoBackendInfo> result;
@@ -299,6 +303,58 @@ std::vector<VideoBackendInfo> getAvailableBackends_CaptureByFilename()
 std::vector<VideoBackendInfo> getAvailableBackends_Writer()
 {
     const std::vector<VideoBackendInfo> result = VideoBackendRegistry::getInstance().getAvailableBackends_Writer();
+    return result;
+}
+
+cv::String getBackendName(VideoCaptureAPIs api)
+{
+    if (api == CAP_ANY)
+        return "CAP_ANY";  // special case, not a part of backends list
+    const int N = sizeof(builtin_backends)/sizeof(builtin_backends[0]);
+    for (size_t i = 0; i < N; i++)
+    {
+        const VideoBackendInfo& backend = builtin_backends[i];
+        if (backend.id == api)
+            return backend.name;
+    }
+    return cv::format("UnknownVideoAPI(%d)", (int)api);
+}
+
+std::vector<VideoCaptureAPIs> getBackends()
+{
+    std::vector<VideoBackendInfo> backends = VideoBackendRegistry::getInstance().getEnabledBackends();
+    std::vector<VideoCaptureAPIs> result;
+    for (size_t i = 0; i < backends.size(); i++)
+        result.push_back((VideoCaptureAPIs)backends[i].id);
+    return result;
+}
+
+std::vector<VideoCaptureAPIs> getCameraBackends()
+{
+    const std::vector<VideoBackendInfo> backends = VideoBackendRegistry::getInstance().getAvailableBackends_CaptureByIndex();
+    std::vector<VideoCaptureAPIs> result;
+    for (size_t i = 0; i < backends.size(); i++)
+        result.push_back((VideoCaptureAPIs)backends[i].id);
+    return result;
+
+}
+
+std::vector<VideoCaptureAPIs> getStreamBackends()
+{
+    const std::vector<VideoBackendInfo> backends = VideoBackendRegistry::getInstance().getAvailableBackends_CaptureByFilename();
+    std::vector<VideoCaptureAPIs> result;
+    for (size_t i = 0; i < backends.size(); i++)
+        result.push_back((VideoCaptureAPIs)backends[i].id);
+    return result;
+
+}
+
+std::vector<VideoCaptureAPIs> getWriterBackends()
+{
+    const std::vector<VideoBackendInfo> backends = VideoBackendRegistry::getInstance().getAvailableBackends_Writer();
+    std::vector<VideoCaptureAPIs> result;
+    for (size_t i = 0; i < backends.size(); i++)
+        result.push_back((VideoCaptureAPIs)backends[i].id);
     return result;
 }
 
@@ -603,22 +659,22 @@ void VideoWriter_create(CvVideoWriter*& writer, Ptr<IVideoWriter>& iwriter, Vide
 #endif
 #ifdef HAVE_VFW
     case CAP_VFW:
-        CREATE_WRITER_LEGACY(cvCreateVideoWriter_VFW(filename.c_str(), fourcc, fps, frameSize, isColor))
+        CREATE_WRITER_LEGACY(cvCreateVideoWriter_VFW(filename.c_str(), fourcc, fps, cvSize(frameSize), isColor))
         break;
 #endif
 #ifdef HAVE_AVFOUNDATION
     case CAP_AVFOUNDATION:
-        CREATE_WRITER_LEGACY(cvCreateVideoWriter_AVFoundation(filename.c_str(), fourcc, fps, frameSize, isColor))
+        CREATE_WRITER_LEGACY(cvCreateVideoWriter_AVFoundation(filename.c_str(), fourcc, fps, cvSize(frameSize), isColor))
         break;
 #endif
 #if defined(HAVE_QUICKTIME) || defined(HAVE_QTKIT)
     case(CAP_QT):
-        CREATE_WRITER_LEGACY(cvCreateVideoWriter_QT(filename.c_str(), fourcc, fps, frameSize, isColor))
+        CREATE_WRITER_LEGACY(cvCreateVideoWriter_QT(filename.c_str(), fourcc, fps, cvSize(frameSize), isColor))
         break;
 #endif
 #ifdef HAVE_GSTREAMER
 case CAP_GSTREAMER:
-        CREATE_WRITER_LEGACY(cvCreateVideoWriter_GStreamer (filename.c_str(), fourcc, fps, frameSize, isColor))
+        CREATE_WRITER_LEGACY(cvCreateVideoWriter_GStreamer (filename.c_str(), fourcc, fps, cvSize(frameSize), isColor))
         break;
 #endif
     case CAP_OPENCV_MJPEG:

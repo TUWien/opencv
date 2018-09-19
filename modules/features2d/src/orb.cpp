@@ -143,7 +143,7 @@ HarrisResponses(const Mat& img, const std::vector<Rect>& layerinfo,
     float scale_sq_sq = scale * scale * scale * scale;
 
     AutoBuffer<int> ofsbuf(blockSize*blockSize);
-    int* ofs = ofsbuf;
+    int* ofs = ofsbuf.data();
     for( int i = 0; i < blockSize; i++ )
         for( int j = 0; j < blockSize; j++ )
             ofs[i*blockSize + j] = (int)(i*step + j);
@@ -779,7 +779,7 @@ static void computeKeyPoints(const Mat& imagePyramid,
                              bool useOCL, int fastThreshold  )
 {
 #ifndef HAVE_OPENCL
-    (void)uimagePyramid;(void)ulayerInfo;(void)useOCL;
+    CV_UNUSED(uimagePyramid);CV_UNUSED(ulayerInfo);CV_UNUSED(useOCL);
 #endif
 
     int i, nkeypoints, level, nlevels = (int)layerInfo.size();
@@ -957,7 +957,7 @@ void ORB_Impl::detectAndCompute( InputArray _image, InputArray _mask,
                                  std::vector<KeyPoint>& keypoints,
                                  OutputArray _descriptors, bool useProvidedKeypoints )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_Assert(patchSize >= 2);
 

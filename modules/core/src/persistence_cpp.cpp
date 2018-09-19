@@ -56,7 +56,7 @@ FileStorage::~FileStorage()
 
 bool FileStorage::open(const String& filename, int flags, const String& encoding)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     release();
     fs.reset(cvOpenFileStorage( filename.c_str(), 0, flags,
@@ -222,7 +222,7 @@ String FileStorage::getDefaultObjectName(const String& _filename)
     if( ptr == ptr2 )
         CV_Error( CV_StsBadArg, "Invalid filename" );
 
-    char* name = name_buf;
+    char* name = name_buf.data();
 
     // name must start with letter or '_'
     if( !cv_isalpha(*ptr) && *ptr!= '_' ){
@@ -237,7 +237,7 @@ String FileStorage::getDefaultObjectName(const String& _filename)
         *name++ = c;
     }
     *name = '\0';
-    name = name_buf;
+    name = name_buf.data();
     if( strcmp( name, "_" ) == 0 )
         strcpy( name, stubname );
     return String(name);
@@ -452,12 +452,12 @@ void write( FileStorage& fs, const String& name, const Mat& value )
 {
     if( value.dims <= 2 )
     {
-        CvMat mat = value;
+        CvMat mat = cvMat(value);
         cvWrite( *fs, name.size() ? name.c_str() : 0, &mat );
     }
     else
     {
-        CvMatND mat = value;
+        CvMatND mat = cvMatND(value);
         cvWrite( *fs, name.size() ? name.c_str() : 0, &mat );
     }
 }

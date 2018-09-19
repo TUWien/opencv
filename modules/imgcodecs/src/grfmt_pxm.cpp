@@ -208,7 +208,7 @@ bool PxMDecoder::readHeader()
 
 bool PxMDecoder::readData( Mat& img )
 {
-    int color = img.channels() > 1;
+    bool color = img.channels() > 1;
     uchar* data = img.ptr();
     PaletteEntry palette[256];
     bool   result = false;
@@ -225,7 +225,7 @@ bool PxMDecoder::readData( Mat& img )
     // create LUT for converting colors
     if( bit_depth == 8 )
     {
-        CV_Assert(m_maxval < 256);
+        CV_Assert(m_maxval < 256 && m_maxval > 0);
 
         for (int i = 0; i <= m_maxval; i++)
             gray_palette[i] = (uchar)((i*255/m_maxval)^(m_bpp == 1 ? 255 : 0));
@@ -245,7 +245,7 @@ bool PxMDecoder::readData( Mat& img )
             if( !m_binary )
             {
                 AutoBuffer<uchar> _src(m_width);
-                uchar* src = _src;
+                uchar* src = _src.data();
 
                 for (int y = 0; y < m_height; y++, data += img.step)
                 {
@@ -261,7 +261,7 @@ bool PxMDecoder::readData( Mat& img )
             else
             {
                 AutoBuffer<uchar> _src(src_pitch);
-                uchar* src = _src;
+                uchar* src = _src.data();
 
                 for (int y = 0; y < m_height; y++, data += img.step)
                 {
@@ -281,7 +281,7 @@ bool PxMDecoder::readData( Mat& img )
         case 24:
         {
             AutoBuffer<uchar> _src(std::max<size_t>(width3*2, src_pitch));
-            uchar* src = _src;
+            uchar* src = _src.data();
 
             for (int y = 0; y < m_height; y++, data += img.step)
             {
@@ -463,7 +463,7 @@ bool PxMEncoder::write(const Mat& img, const std::vector<int>& params)
         bufferSize = lineLength;
 
     AutoBuffer<char> _buffer(bufferSize);
-    char* buffer = _buffer;
+    char* buffer = _buffer.data();
 
     // write header;
     const int code = ((mode == PXM_TYPE_PBM) ? 1 : (mode == PXM_TYPE_PGM) ? 2 : 3)

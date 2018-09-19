@@ -2,8 +2,6 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/dnn.hpp>
 
-#include "custom_layers.hpp"
-
 using namespace cv;
 using namespace cv::dnn;
 
@@ -35,11 +33,15 @@ int main(int argc, char** argv)
     float nmsThreshold = parser.get<float>("nms");
     int inpWidth = parser.get<int>("width");
     int inpHeight = parser.get<int>("height");
-    CV_Assert(parser.has("model"));
     String model = parser.get<String>("model");
 
-    // Register a custom layer.
-    CV_DNN_REGISTER_LAYER_CLASS(ResizeBilinear, ResizeBilinearLayer);
+    if (!parser.check())
+    {
+        parser.printErrors();
+        return 1;
+    }
+
+    CV_Assert(!model.empty());
 
     // Load network.
     Net net = readNet(model);
@@ -118,9 +120,9 @@ void decode(const Mat& scores, const Mat& geometry, float scoreThresh,
             std::vector<RotatedRect>& detections, std::vector<float>& confidences)
 {
     detections.clear();
-    CV_Assert(scores.dims == 4, geometry.dims == 4, scores.size[0] == 1,
-              geometry.size[0] == 1, scores.size[1] == 1, geometry.size[1] == 5,
-              scores.size[2] == geometry.size[2], scores.size[3] == geometry.size[3]);
+    CV_Assert(scores.dims == 4); CV_Assert(geometry.dims == 4); CV_Assert(scores.size[0] == 1);
+    CV_Assert(geometry.size[0] == 1); CV_Assert(scores.size[1] == 1); CV_Assert(geometry.size[1] == 5);
+    CV_Assert(scores.size[2] == geometry.size[2]); CV_Assert(scores.size[3] == geometry.size[3]);
 
     const int height = scores.size[2];
     const int width = scores.size[3];

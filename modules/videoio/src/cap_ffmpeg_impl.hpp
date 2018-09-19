@@ -58,6 +58,10 @@
 #  pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
+#ifndef CV_UNUSED  // Required for standalone compilation mode (OpenCV defines this in base.hpp)
+#define CV_UNUSED(name) (void)name
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -715,6 +719,8 @@ static int LockCallBack(void **mutex, AVLockOp op)
     {
         case AV_LOCK_CREATE:
             localMutex = reinterpret_cast<ImplMutex*>(malloc(sizeof(ImplMutex)));
+            if (!localMutex)
+                return 1;
             localMutex->init();
             *mutex = localMutex;
             if (!*mutex)
@@ -758,7 +764,7 @@ static void ffmpeg_log_callback(void *ptr, int level, const char *fmt, va_list v
 {
     static bool skip_header = false;
     static int prev_level = -1;
-    (void)ptr;
+    CV_UNUSED(ptr);
     if (!skip_header || level != prev_level) printf("[OPENCV:FFMPEG:%02d] ", level);
     vprintf(fmt, vargs);
     size_t fmt_len = strlen(fmt);
@@ -2351,9 +2357,6 @@ AVStream* OutputMediaStream_FFMPEG::addVideoStream(AVFormatContext *oc, CV_CODEC
     c->codec_type = AVMEDIA_TYPE_VIDEO;
 
     // put sample parameters
-    unsigned long long lbit_rate = static_cast<unsigned long long>(bitrate);
-    lbit_rate += (bitrate / 4);
-    lbit_rate = std::min(lbit_rate, static_cast<unsigned long long>(std::numeric_limits<int>::max()));
     c->bit_rate = bitrate;
 
     // took advice from

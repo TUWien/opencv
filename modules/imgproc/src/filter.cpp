@@ -383,7 +383,7 @@ int FilterEngine::proceed( const uchar* src, int srcstep, int count,
 
 void FilterEngine::apply(const Mat& src, Mat& dst, const Size & wsz, const Point & ofs)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_Assert( src.type() == srcType && dst.type() == dstType );
 
@@ -1426,7 +1426,7 @@ private:
     mutable int bufsz;
     int ippiOperator(const uchar* _src, uchar* _dst, int width, int cn) const
     {
-        CV_INSTRUMENT_REGION_IPP()
+        CV_INSTRUMENT_REGION_IPP();
 
         int _ksize = kernel.rows + kernel.cols - 1;
         if ((1 != cn && 3 != cn) || width < _ksize*8)
@@ -1444,7 +1444,7 @@ private:
                 return 0;
         }
         AutoBuffer<uchar> buf(bufsz + 64);
-        uchar* bufptr = alignPtr((uchar*)buf, 32);
+        uchar* bufptr = alignPtr(buf.data(), 32);
         int step = (int)(width*sizeof(dst[0])*cn);
         float borderValue[] = {0.f, 0.f, 0.f};
         // here is the trick. IPP needs border type and extrapolates the row. We did it already.
@@ -4284,10 +4284,14 @@ static bool ocl_sepFilter2D_SinglePass(InputArray _src, OutputArray _dst,
     size_t src_step = _src.step(), src_offset = _src.offset();
     bool doubleSupport = ocl::Device::getDefault().doubleFPConfig() > 0;
 
-    if ((src_offset % src_step) % esz != 0 || (!doubleSupport && (sdepth == CV_64F || ddepth == CV_64F)) ||
-            !(borderType == BORDER_CONSTANT || borderType == BORDER_REPLICATE ||
-              borderType == BORDER_REFLECT || borderType == BORDER_WRAP ||
-              borderType == BORDER_REFLECT_101))
+    if (esz == 0 || src_step == 0
+        || (src_offset % src_step) % esz != 0
+        || (!doubleSupport && (sdepth == CV_64F || ddepth == CV_64F))
+        || !(borderType == BORDER_CONSTANT
+             || borderType == BORDER_REPLICATE
+             || borderType == BORDER_REFLECT
+             || borderType == BORDER_WRAP
+             || borderType == BORDER_REFLECT_101))
         return false;
 
     size_t lt2[2] = { optimizedSepFilterLocalWidth, optimizedSepFilterLocalHeight };
@@ -4891,7 +4895,7 @@ void cv::filter2D( InputArray _src, OutputArray _dst, int ddepth,
                    InputArray _kernel, Point anchor0,
                    double delta, int borderType )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_OCL_RUN(_dst.isUMat() && _src.dims() <= 2,
                ocl_filter2D(_src, _dst, ddepth, _kernel, anchor0, delta, borderType))
@@ -4922,7 +4926,7 @@ void cv::sepFilter2D( InputArray _src, OutputArray _dst, int ddepth,
                       InputArray _kernelX, InputArray _kernelY, Point anchor,
                       double delta, int borderType )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_OCL_RUN(_dst.isUMat() && _src.dims() <= 2 && (size_t)_src.rows() > _kernelY.total() && (size_t)_src.cols() > _kernelX.total(),
                ocl_sepFilter2D(_src, _dst, ddepth, _kernelX, _kernelY, anchor, delta, borderType))

@@ -85,7 +85,7 @@ void MatAllocator::copy(UMatData* usrc, UMatData* udst, int dims, const size_t s
                   const size_t srcofs[], const size_t srcstep[],
                   const size_t dstofs[], const size_t dststep[], bool /*sync*/) const
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     if(!usrc || !udst)
         return;
@@ -118,7 +118,7 @@ void MatAllocator::copy(UMatData* usrc, UMatData* udst, int dims, const size_t s
 
 BufferPoolController* MatAllocator::getBufferPoolController(const char* id) const
 {
-    (void)id;
+    CV_UNUSED(id);
     static DummyBufferPoolController dummy;
     return &dummy;
 }
@@ -410,7 +410,7 @@ Mat::Mat(const Mat& m, const Range& _rowRange, const Range& _colRange)
         rs[1] = _colRange;
         for( int i = 2; i < m.dims; i++ )
             rs[i] = Range::all();
-        *this = m(rs);
+        *this = m(rs.data());
         return;
     }
 
@@ -602,13 +602,13 @@ void Mat::pop_back(size_t nelems)
 
 void Mat::push_back_(const void* elem)
 {
-    int r = size.p[0];
+    size_t r = size.p[0];
     if( isSubmatrix() || dataend + step.p[0] > datalimit )
         reserve( std::max(r + 1, (r*3+1)/2) );
 
     size_t esz = elemSize();
     memcpy(data + r*step.p[0], elem, esz);
-    size.p[0] = r + 1;
+    size.p[0] = int(r + 1);
     dataend += step.p[0];
     uint64 tsz = size.p[0];
     for( int i = 1; i < dims; i++ )
@@ -709,7 +709,8 @@ void Mat::resize(size_t nelems, const Scalar& s)
 
 void Mat::push_back(const Mat& elems)
 {
-    int r = size.p[0], delta = elems.size.p[0];
+    size_t r = size.p[0];
+    size_t delta = elems.size.p[0];
     if( delta == 0 )
         return;
     if( this == &elems )
@@ -726,7 +727,7 @@ void Mat::push_back(const Mat& elems)
 
     size.p[0] = elems.size.p[0];
     bool eq = size == elems.size;
-    size.p[0] = r;
+    size.p[0] = int(r);
     if( !eq )
         CV_Error(CV_StsUnmatchedSizes, "Pushed vector length is not equal to matrix row length");
     if( type() != elems.type() )
@@ -735,7 +736,7 @@ void Mat::push_back(const Mat& elems)
     if( isSubmatrix() || dataend + step.p[0]*delta > datalimit )
         reserve( std::max(r + delta, (r*3+1)/2) );
 
-    size.p[0] += delta;
+    size.p[0] += int(delta);
     dataend += step.p[0]*delta;
 
     //updateContinuityFlag(*this);
@@ -744,7 +745,7 @@ void Mat::push_back(const Mat& elems)
         memcpy(data + r*step.p[0], elems.data, elems.total()*elems.elemSize());
     else
     {
-        Mat part = rowRange(r, r + delta);
+        Mat part = rowRange(int(r), int(r + delta));
         elems.copyTo(part);
     }
 }
@@ -897,7 +898,7 @@ Mat Mat::reshape(int _cn, int _newndims, const int* _newsz) const
 
         Mat hdr = *this;
         hdr.flags = (hdr.flags & ~CV_MAT_CN_MASK) | ((_cn-1) << CV_CN_SHIFT);
-        setSize(hdr, _newndims, (int*)newsz_buf, NULL, true);
+        setSize(hdr, _newndims, newsz_buf.data(), NULL, true);
 
         return hdr;
     }

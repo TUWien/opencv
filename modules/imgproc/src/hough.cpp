@@ -165,11 +165,11 @@ HoughLinesStandard( InputArray src, OutputArray lines, int type,
     AutoBuffer<float> _tabSin(numangle);
     AutoBuffer<float> _tabCos(numangle);
     int *accum = _accum.ptr<int>();
-    float *tabSin = _tabSin, *tabCos = _tabCos;
+    float *tabSin = _tabSin.data(), *tabCos = _tabCos.data();
 
     // create sin and cos table
     createTrigTable( numangle, min_theta, theta,
-                     irho, tabSin, tabCos );
+                     irho, tabSin, tabCos);
 
     // stage 1. fill accumulator
     for( i = 0; i < height; i++ )
@@ -413,7 +413,6 @@ HoughLinesSDiv( InputArray image, OutputArray lines, int type,
                 // Find peaks in maccum...
                 for( index = 0; index < sfn; index++ )
                 {
-                    i = 0;
                     int pos = (int)(lst.size() - 1);
                     if( pos < 0 || lst[pos].value < mcaccum[index] )
                     {
@@ -803,7 +802,7 @@ static bool ocl_HoughLines(InputArray _src, OutputArray _lines, double rho, doub
     int total_points = counters.getMat(ACCESS_READ).at<int>(0, 0);
     if (total_points <= 0)
     {
-        _lines.assign(UMat(0,0,CV_32FC2));
+        _lines.release();
         return true;
     }
 
@@ -831,7 +830,7 @@ static bool ocl_HoughLines(InputArray _src, OutputArray _lines, double rho, doub
     if (total_lines > 0)
         _lines.assign(lines.rowRange(Range(0, total_lines)));
     else
-        _lines.assign(UMat(0,0,CV_32FC2));
+        _lines.release();
     return true;
 }
 
@@ -857,7 +856,7 @@ static bool ocl_HoughLinesP(InputArray _src, OutputArray _lines, double rho, dou
     int total_points = counters.getMat(ACCESS_READ).at<int>(0, 0);
     if (total_points <= 0)
     {
-        _lines.assign(UMat(0,0,CV_32SC4));
+        _lines.release();
         return true;
     }
 
@@ -885,7 +884,7 @@ static bool ocl_HoughLinesP(InputArray _src, OutputArray _lines, double rho, dou
     if (total_lines > 0)
         _lines.assign(lines.rowRange(Range(0, total_lines)));
     else
-        _lines.assign(UMat(0,0,CV_32SC4));
+        _lines.release();
 
     return true;
 }
@@ -896,7 +895,7 @@ void HoughLines( InputArray _image, OutputArray lines,
                  double rho, double theta, int threshold,
                  double srn, double stn, double min_theta, double max_theta )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int type = CV_32FC2;
     if (lines.fixedType())
@@ -919,7 +918,7 @@ void HoughLinesP(InputArray _image, OutputArray _lines,
                  double rho, double theta, int threshold,
                  double minLineLength, double maxGap )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_OCL_RUN(_image.isUMat() && _lines.isUMat(),
                ocl_HoughLinesP(_image, _lines, rho, theta, threshold, minLineLength, maxGap));
@@ -963,7 +962,7 @@ void HoughLinesPointSet( InputArray _point, OutputArray _lines, int lines_max, i
     AutoBuffer<float> _tabSin(numangle);
     AutoBuffer<float> _tabCos(numangle);
     int *accum = _accum.ptr<int>();
-    float *tabSin = _tabSin, *tabCos = _tabCos;
+    float *tabSin = _tabSin.data(), *tabCos = _tabCos.data();
 
     // create sin and cos table
     createTrigTable( numangle, min_theta, theta_step,
@@ -1408,8 +1407,8 @@ protected:
         int nBins = cvRound((maxRadius - minRadius)/dr*nBinsPerDr);
         AutoBuffer<int> bins(nBins);
         AutoBuffer<float> distBuf(nzSz), distSqrtBuf(nzSz);
-        float *ddata = distBuf;
-        float *dSqrtData = distSqrtBuf;
+        float *ddata = distBuf.data();
+        float *dSqrtData = distSqrtBuf.data();
 
         bool singleThread = (boundaries == Range(0, centerSz));
         int i = boundaries.start;
@@ -1434,7 +1433,7 @@ protected:
                 Mat_<float> distSqrtMat(1, nzCount, dSqrtData);
                 sqrt(distMat, distSqrtMat);
 
-                memset(bins, 0, sizeof(bins[0])*bins.size());
+                memset(bins.data(), 0, sizeof(bins[0])*bins.size());
                 for(int k = 0; k < nzCount; k++)
                 {
                     int bin = std::max(0, std::min(nBins-1, cvRound((dSqrtData[k] - minRadius)/dr*nBinsPerDr)));
@@ -1725,7 +1724,7 @@ static void HoughCircles( InputArray _image, OutputArray _circles,
                           int minRadius, int maxRadius,
                           int maxCircles, double param3 )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int type = CV_32FC3;
     if( _circles.fixedType() )

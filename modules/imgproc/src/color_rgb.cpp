@@ -5,6 +5,8 @@
 #include "precomp.hpp"
 #include "color.hpp"
 
+#define IPP_DISABLE_CVTCOLOR_GRAY2BGR_8UC3 1
+
 namespace cv
 {
 
@@ -1228,10 +1230,12 @@ static ippiGeneralFunc ippiRGB2GrayC4Tab[] =
 };
 
 
+#if !IPP_DISABLE_CVTCOLOR_GRAY2BGR_8UC3
 static IppStatus ippiGrayToRGB_C1C3R(const Ipp8u*  pSrc, int srcStep, Ipp8u*  pDst, int dstStep, IppiSize roiSize)
 {
     return CV_INSTRUMENT_FUN_IPP(ippiGrayToRGB_8u_C1C3R, pSrc, srcStep, pDst, dstStep, roiSize);
 }
+#endif
 static IppStatus ippiGrayToRGB_C1C3R(const Ipp16u* pSrc, int srcStep, Ipp16u* pDst, int dstStep, IppiSize roiSize)
 {
     return CV_INSTRUMENT_FUN_IPP(ippiGrayToRGB_16u_C1C3R, pSrc, srcStep, pDst, dstStep, roiSize);
@@ -1367,7 +1371,7 @@ void cvtBGRtoBGR(const uchar * src_data, size_t src_step,
                  int width, int height,
                  int depth, int scn, int dcn, bool swapBlue)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtBGRtoBGR, cv_hal_cvtBGRtoBGR, src_data, src_step, dst_data, dst_step, width, height, depth, scn, dcn, swapBlue);
 
@@ -1430,7 +1434,7 @@ void cvtBGRtoBGR5x5(const uchar * src_data, size_t src_step,
                     int width, int height,
                     int scn, bool swapBlue, int greenBits)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtBGRtoBGR5x5, cv_hal_cvtBGRtoBGR5x5, src_data, src_step, dst_data, dst_step, width, height, scn, swapBlue, greenBits);
 
@@ -1443,7 +1447,7 @@ void cvtBGR5x5toBGR(const uchar * src_data, size_t src_step,
                     int width, int height,
                     int dcn, bool swapBlue, int greenBits)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtBGR5x5toBGR, cv_hal_cvtBGR5x5toBGR, src_data, src_step, dst_data, dst_step, width, height, dcn, swapBlue, greenBits);
 
@@ -1456,7 +1460,7 @@ void cvtBGRtoGray(const uchar * src_data, size_t src_step,
                   int width, int height,
                   int depth, int scn, bool swapBlue)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtBGRtoGray, cv_hal_cvtBGRtoGray, src_data, src_step, dst_data, dst_step, width, height, depth, scn, swapBlue);
 
@@ -1505,7 +1509,7 @@ void cvtGraytoBGR(const uchar * src_data, size_t src_step,
                   int width, int height,
                   int depth, int dcn)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtGraytoBGR, cv_hal_cvtGraytoBGR, src_data, src_step, dst_data, dst_step, width, height, depth, dcn);
 
@@ -1516,7 +1520,11 @@ void cvtGraytoBGR(const uchar * src_data, size_t src_step,
         if(dcn == 3)
         {
             if( depth == CV_8U )
+            {
+#if !IPP_DISABLE_CVTCOLOR_GRAY2BGR_8UC3
                 ippres = CvtColorIPPLoop(src_data, src_step, dst_data, dst_step, width, height, IPPGray2BGRFunctor<Ipp8u>());
+#endif
+            }
             else if( depth == CV_16U )
                 ippres = CvtColorIPPLoop(src_data, src_step, dst_data, dst_step, width, height, IPPGray2BGRFunctor<Ipp16u>());
             else
@@ -1550,7 +1558,7 @@ void cvtBGR5x5toGray(const uchar * src_data, size_t src_step,
                      int width, int height,
                      int greenBits)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtBGR5x5toGray, cv_hal_cvtBGR5x5toGray, src_data, src_step, dst_data, dst_step, width, height, greenBits);
     CvtColorLoop(src_data, src_step, dst_data, dst_step, width, height, RGB5x52Gray(greenBits));
@@ -1562,7 +1570,7 @@ void cvtGraytoBGR5x5(const uchar * src_data, size_t src_step,
                      int width, int height,
                      int greenBits)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtGraytoBGR5x5, cv_hal_cvtGraytoBGR5x5, src_data, src_step, dst_data, dst_step, width, height, greenBits);
     CvtColorLoop(src_data, src_step, dst_data, dst_step, width, height, Gray2RGB5x5(greenBits));
@@ -1572,7 +1580,7 @@ void cvtRGBAtoMultipliedRGBA(const uchar * src_data, size_t src_step,
                              uchar * dst_data, size_t dst_step,
                              int width, int height)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtRGBAtoMultipliedRGBA, cv_hal_cvtRGBAtoMultipliedRGBA, src_data, src_step, dst_data, dst_step, width, height);
 
@@ -1592,7 +1600,7 @@ void cvtMultipliedRGBAtoRGBA(const uchar * src_data, size_t src_step,
                              uchar * dst_data, size_t dst_step,
                              int width, int height)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CALL_HAL(cvtMultipliedRGBAtoRGBA, cv_hal_cvtMultipliedRGBAtoRGBA, src_data, src_step, dst_data, dst_step, width, height);
     CvtColorLoop(src_data, src_step, dst_data, dst_step, width, height, mRGBA2RGBA<uchar>());

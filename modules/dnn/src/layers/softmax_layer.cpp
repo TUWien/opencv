@@ -88,7 +88,7 @@ public:
 
     virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
-        return backendId == DNN_BACKEND_DEFAULT ||
+        return backendId == DNN_BACKEND_OPENCV ||
                backendId == DNN_BACKEND_HALIDE && haveHalide() && axisRaw == 1 ||
                backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine() && !logSoftMax;
     }
@@ -110,27 +110,26 @@ public:
         outputs_.getUMatVector(outputs);
         internals_.getUMatVector(internals);
 
+        UMat& src = inputs[0];
+        UMat& dstMat = outputs[0];
+        int axis = clamp(axisRaw, src.dims);
+
         if (softmaxOp.empty())
         {
             OCL4DNNSoftmaxConfig config;
-
             config.in_shape = shape(inputs[0]);
-            config.axis = axisRaw;
-            config.channels = inputs[0].size[axisRaw];
+            config.axis = axis;
+            config.channels = inputs[0].size[axis];
             config.logsoftmax = logSoftMax;
             config.use_half = use_half;
 
             softmaxOp = Ptr<OCL4DNNSoftmax<float> >(new OCL4DNNSoftmax<float>(config));
         }
 
-        UMat& src = inputs[0];
-        UMat& dstMat = outputs[0];
-
         if (softmaxOp->Forward(src, dstMat))
             return true;
 
         UMat& bufMat = internals[0];
-        int axis = clamp(axisRaw, src.dims);
         MatShape s = shape(src);
         size_t outerSize = total(s, 0, axis);
         size_t channels = src.size[axis];
@@ -192,15 +191,18 @@ public:
                    OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
-        Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
-    }
+        if (inputs_arr.depth() == CV_16S)
+        {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
 
-    void forward(std::vector<Mat*> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
-    {
-        CV_TRACE_FUNCTION();
-        CV_TRACE_ARG_VALUE(name, "name", name.c_str());
+        std::vector<Mat> inputs, outputs, internals;
+        inputs_arr.getMatVector(inputs);
+        outputs_arr.getMatVector(outputs);
+        internals_arr.getMatVector(internals);
 
-        const Mat &src = *inputs[0];
+        const Mat &src = inputs[0];
         Mat &dst = outputs[0];
 
         int axis = clamp(axisRaw, src.dims);
@@ -308,15 +310,17 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >& inputs) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
+        InferenceEngine::DataPtr input = infEngineDataNode(inputs[0]);
+
         InferenceEngine::LayerParams lp;
         lp.name = name;
         lp.type = "SoftMax";
         lp.precision = InferenceEngine::Precision::FP32;
         std::shared_ptr<InferenceEngine::SoftMaxLayer> ieLayer(new InferenceEngine::SoftMaxLayer(lp));
-        ieLayer->axis = axisRaw;
+        ieLayer->axis = clamp(axisRaw, input->dims.size());
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
@@ -325,7 +329,7 @@ public:
     int64 getFLOPS(const std::vector<MatShape> &inputs,
                   const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
-        (void)outputs; // suppress unused variable warning
+        CV_UNUSED(outputs); // suppress unused variable warning
         int64 flops = 0;
 
         for (int i = 0; i < inputs.size(); i++)

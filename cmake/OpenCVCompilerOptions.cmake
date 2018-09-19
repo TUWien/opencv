@@ -1,5 +1,5 @@
 if("${CMAKE_CXX_COMPILER};${CMAKE_C_COMPILER};${CMAKE_CXX_COMPILER_LAUNCHER}" MATCHES "ccache")
-  set(CMAKE_COMPILER_IS_CCACHE 1)  # FIXIT Avoid setting of CMAKE_ variables
+  set(CMAKE_COMPILER_IS_CCACHE 1)  # TODO: FIXIT Avoid setting of CMAKE_ variables
   set(OPENCV_COMPILER_IS_CCACHE 1)
 endif()
 function(access_CMAKE_COMPILER_IS_CCACHE)
@@ -125,8 +125,8 @@ if(CV_GCC OR CV_CLANG)
     )
       add_extra_compiler_option(-Wimplicit-fallthrough=3)
     endif()
-    if(CV_GCC AND CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 7.2.0)
-      add_extra_compiler_option(-Wno-strict-overflow) # Issue is fixed in GCC 7.2.1
+    if(CV_GCC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
+      add_extra_compiler_option(-Wno-strict-overflow) # Issue appears when compiling surf.cpp from opencv_contrib/modules/xfeatures2d
     endif()
   endif()
   add_extra_compiler_option(-fdiagnostics-show-option)

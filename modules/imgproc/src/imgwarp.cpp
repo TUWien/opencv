@@ -50,6 +50,7 @@
 #include "precomp.hpp"
 #include "opencl_kernels_imgproc.hpp"
 #include "hal_replacement.hpp"
+#include <opencv2/core/utils/configuration.private.hpp>
 #include "opencv2/core/hal/intrin.hpp"
 #include "opencv2/core/openvx/ovx_defs.hpp"
 #include "opencv2/core/softfloat.hpp"
@@ -66,7 +67,7 @@ typedef IppStatus (CV_STDCALL* ippiSetFunc)(const void*, void *, int, IppiSize);
 template <int channels, typename Type>
 bool IPPSetSimple(cv::Scalar value, void *dataPointer, int step, IppiSize &size, ippiSetFunc func)
 {
-    CV_INSTRUMENT_REGION_IPP()
+    CV_INSTRUMENT_REGION_IPP();
 
     Type values[channels];
     for( int i = 0; i < channels; i++ )
@@ -76,7 +77,7 @@ bool IPPSetSimple(cv::Scalar value, void *dataPointer, int step, IppiSize &size,
 
 static bool IPPSet(const cv::Scalar &value, void *dataPointer, int step, IppiSize &size, int channels, int depth)
 {
-    CV_INSTRUMENT_REGION_IPP()
+    CV_INSTRUMENT_REGION_IPP();
 
     if( channels == 1 )
     {
@@ -228,7 +229,7 @@ static const void* initInterTab2D( int method, bool fixpt )
     {
         AutoBuffer<float> _tab(8*INTER_TAB_SIZE);
         int i, j, k1, k2;
-        initInterTab1D(method, _tab, INTER_TAB_SIZE);
+        initInterTab1D(method, _tab.data(), INTER_TAB_SIZE);
         for( i = 0; i < INTER_TAB_SIZE; i++ )
             for( j = 0; j < INTER_TAB_SIZE; j++, tab += ksize*ksize, itab += ksize*ksize )
             {
@@ -1669,7 +1670,7 @@ void cv::remap( InputArray _src, OutputArray _dst,
                 InputArray _map1, InputArray _map2,
                 int interpolation, int borderType, const Scalar& borderValue )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     static RemapNNFunc nn_tab[] =
     {
@@ -1831,7 +1832,7 @@ void cv::convertMaps( InputArray _map1, InputArray _map2,
                       OutputArray _dstmap1, OutputArray _dstmap2,
                       int dstm1type, bool nninterpolate )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     Mat map1 = _map1.getMat(), map2 = _map2.getMat(), dstmap1, dstmap2;
     Size size = map1.size();
@@ -2589,7 +2590,7 @@ void cv::warpAffine( InputArray _src, OutputArray _dst,
                      InputArray _M0, Size dsize,
                      int flags, int borderType, const Scalar& borderValue )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     int interpolation = flags & INTER_MAX;
     CV_Assert( _src.channels() <= 4 || (interpolation != INTER_LANCZOS4 &&
@@ -2853,7 +2854,7 @@ public:
             }
         }
 
-        IppStatus status = CV_INSTRUMENT_FUN_IPP(func,(src.ptr(), srcsize, (int)src.step[0], srcroi, dst.ptr(), (int)dst.step[0], dstroi, coeffs, mode));
+        IppStatus status = CV_INSTRUMENT_FUN_IPP(func,(src.ptr();, srcsize, (int)src.step[0], srcroi, dst.ptr(), (int)dst.step[0], dstroi, coeffs, mode));
         if (status != ippStsNoErr)
             *ok = false;
         else
@@ -2897,7 +2898,7 @@ void warpPerspectve(int src_type,
 void cv::warpPerspective( InputArray _src, OutputArray _dst, InputArray _M0,
                           Size dsize, int flags, int borderType, const Scalar& borderValue )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_Assert( _src.total() > 0 );
 
@@ -2995,7 +2996,7 @@ void cv::warpPerspective( InputArray _src, OutputArray _dst, InputArray _M0,
 
 cv::Mat cv::getRotationMatrix2D( Point2f center, double angle, double scale )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     angle *= CV_PI/180;
     double alpha = std::cos(angle)*scale;
@@ -3040,7 +3041,7 @@ cv::Mat cv::getRotationMatrix2D( Point2f center, double angle, double scale )
  */
 cv::Mat cv::getPerspectiveTransform( const Point2f src[], const Point2f dst[] )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     Mat M(3, 3, CV_64F), X(8, 1, CV_64F, M.ptr());
     double a[8][8], b[8];
@@ -3061,7 +3062,9 @@ cv::Mat cv::getPerspectiveTransform( const Point2f src[], const Point2f dst[] )
         b[i+4] = dst[i].y;
     }
 
-    solve( A, B, X, DECOMP_SVD );
+    static int param_IMGPROC_GETPERSPECTIVETRANSFORM_SOLVE_METHOD =
+        (int)utils::getConfigurationParameterSizeT("OPENCV_IMGPROC_GETPERSPECTIVETRANSFORM_SOLVE_METHOD", (size_t)DECOMP_LU);
+    solve(A, B, X, param_IMGPROC_GETPERSPECTIVETRANSFORM_SOLVE_METHOD);
     M.ptr<double>()[8] = 1.;
 
     return M;
@@ -3283,6 +3286,7 @@ void cv::warpPolar(InputArray _src, OutputArray _dst, Size dsize,
 
     if (!(flags & CV_WARP_INVERSE_MAP))
     {
+        CV_Assert(!dsize.empty());
         double Kangle = CV_2PI / dsize.height;
         int phi, rho;
 
@@ -3329,6 +3333,7 @@ void cv::warpPolar(InputArray _src, OutputArray _dst, Size dsize,
         Mat src = _dst.getMat();
         Size ssize = _dst.size();
         ssize.height -= 2 * ANGLE_BORDER;
+        CV_Assert(!ssize.empty());
         const double Kangle = CV_2PI / ssize.height;
         double Kmag;
         if (semiLog)

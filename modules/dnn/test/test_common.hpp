@@ -42,12 +42,53 @@
 #ifndef __OPENCV_TEST_COMMON_HPP__
 #define __OPENCV_TEST_COMMON_HPP__
 
-inline const std::string &getOpenCVExtraDir()
+#ifdef HAVE_OPENCL
+#include "opencv2/core/ocl.hpp"
+#endif
+
+namespace cv { namespace dnn {
+CV__DNN_EXPERIMENTAL_NS_BEGIN
+static inline void PrintTo(const cv::dnn::Backend& v, std::ostream* os)
+{
+    switch (v) {
+    case DNN_BACKEND_DEFAULT: *os << "DEFAULT"; return;
+    case DNN_BACKEND_HALIDE: *os << "HALIDE"; return;
+    case DNN_BACKEND_INFERENCE_ENGINE: *os << "DLIE"; return;
+    case DNN_BACKEND_OPENCV: *os << "OCV"; return;
+    } // don't use "default:" to emit compiler warnings
+    *os << "DNN_BACKEND_UNKNOWN(" << v << ")";
+}
+
+static inline void PrintTo(const cv::dnn::Target& v, std::ostream* os)
+{
+    switch (v) {
+    case DNN_TARGET_CPU: *os << "CPU"; return;
+    case DNN_TARGET_OPENCL: *os << "OCL"; return;
+    case DNN_TARGET_OPENCL_FP16: *os << "OCL_FP16"; return;
+    case DNN_TARGET_MYRIAD: *os << "MYRIAD"; return;
+    } // don't use "default:" to emit compiler warnings
+    *os << "DNN_TARGET_UNKNOWN(" << v << ")";
+}
+
+using opencv_test::tuple;
+using opencv_test::get;
+static inline void PrintTo(const tuple<cv::dnn::Backend, cv::dnn::Target> v, std::ostream* os)
+{
+    PrintTo(get<0>(v), os);
+    *os << "/";
+    PrintTo(get<1>(v), os);
+}
+
+CV__DNN_EXPERIMENTAL_NS_END
+}} // namespace
+
+
+static inline const std::string &getOpenCVExtraDir()
 {
     return cvtest::TS::ptr()->get_data_path();
 }
 
-inline void normAssert(cv::InputArray ref, cv::InputArray test, const char *comment = "",
+static inline void normAssert(cv::InputArray ref, cv::InputArray test, const char *comment = "",
                        double l1 = 0.00001, double lInf = 0.0001)
 {
     double normL1 = cvtest::norm(ref, test, cv::NORM_L1) / ref.getMat().total();
@@ -74,7 +115,7 @@ static std::vector<cv::Rect2d> matToBoxes(const cv::Mat& m)
     return boxes;
 }
 
-inline void normAssertDetections(const std::vector<int>& refClassIds,
+static inline void normAssertDetections(const std::vector<int>& refClassIds,
                                  const std::vector<float>& refScores,
                                  const std::vector<cv::Rect2d>& refBoxes,
                                  const std::vector<int>& testClassIds,
@@ -128,7 +169,7 @@ inline void normAssertDetections(const std::vector<int>& refClassIds,
 // For SSD-based object detection networks which produce output of shape 1x1xNx7
 // where N is a number of detections and an every detection is represented by
 // a vector [batchId, classId, confidence, left, top, right, bottom].
-inline void normAssertDetections(cv::Mat ref, cv::Mat out, const char *comment = "",
+static inline void normAssertDetections(cv::Mat ref, cv::Mat out, const char *comment = "",
                                  double confThreshold = 0.0, double scores_diff = 1e-5,
                                  double boxes_iou_diff = 1e-4)
 {
@@ -147,17 +188,18 @@ inline void normAssertDetections(cv::Mat ref, cv::Mat out, const char *comment =
                          testBoxes, comment, confThreshold, scores_diff, boxes_iou_diff);
 }
 
-inline bool checkMyriadTarget()
+static inline bool checkMyriadTarget()
 {
 #ifndef HAVE_INF_ENGINE
     return false;
-#endif
+#else
     cv::dnn::Net net;
     cv::dnn::LayerParams lp;
     net.addLayerToPrev("testLayer", "Identity", lp);
     net.setPreferableBackend(cv::dnn::DNN_BACKEND_INFERENCE_ENGINE);
     net.setPreferableTarget(cv::dnn::DNN_TARGET_MYRIAD);
-    net.setInput(cv::Mat::zeros(1, 1, CV_32FC1));
+    static int inpDims[] = {1, 2, 3, 4};
+    net.setInput(cv::Mat(4, &inpDims[0], CV_32FC1, cv::Scalar(0)));
     try
     {
         net.forward();
@@ -167,9 +209,10 @@ inline bool checkMyriadTarget()
         return false;
     }
     return true;
+#endif
 }
 
-inline bool readFileInMemory(const std::string& filename, std::string& content)
+static inline bool readFileInMemory(const std::string& filename, std::string& content)
 {
     std::ios::openmode mode = std::ios::in | std::ios::binary;
     std::ifstream ifs(filename.c_str(), mode);
@@ -187,5 +230,55 @@ inline bool readFileInMemory(const std::string& filename, std::string& content)
 
     return true;
 }
+
+namespace opencv_test {
+
+using namespace cv::dnn;
+
+static testing::internal::ParamGenerator<tuple<Backend, Target> > dnnBackendsAndTargets(
+        bool withInferenceEngine = true,
+        bool withHalide = false,
+        bool withCpuOCV = true
+)
+{
+    std::vector<tuple<Backend, Target> > targets;
+#ifdef HAVE_HALIDE
+    if (withHalide)
+    {
+        targets.push_back(make_tuple(DNN_BACKEND_HALIDE, DNN_TARGET_CPU));
+#ifdef HAVE_OPENCL
+        if (cv::ocl::useOpenCL())
+            targets.push_back(make_tuple(DNN_BACKEND_HALIDE, DNN_TARGET_OPENCL));
+#endif
+    }
+#endif
+#ifdef HAVE_INF_ENGINE
+    if (withInferenceEngine)
+    {
+        targets.push_back(make_tuple(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_CPU));
+#ifdef HAVE_OPENCL
+        if (cv::ocl::useOpenCL() && ocl::Device::getDefault().isIntel())
+        {
+            targets.push_back(make_tuple(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_OPENCL));
+            targets.push_back(make_tuple(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_OPENCL_FP16));
+        }
+#endif
+        if (checkMyriadTarget())
+            targets.push_back(make_tuple(DNN_BACKEND_INFERENCE_ENGINE, DNN_TARGET_MYRIAD));
+    }
+#endif
+    if (withCpuOCV)
+        targets.push_back(make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_CPU));
+#ifdef HAVE_OPENCL
+    if (cv::ocl::useOpenCL())
+    {
+        targets.push_back(make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_OPENCL));
+        targets.push_back(make_tuple(DNN_BACKEND_OPENCV, DNN_TARGET_OPENCL_FP16));
+    }
+#endif
+    return testing::ValuesIn(targets);
+}
+
+} // namespace
 
 #endif
