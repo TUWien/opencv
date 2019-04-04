@@ -21,4 +21,4 @@ bin/
 *.suo
 *.log
 *.tlog
-build
+build*
