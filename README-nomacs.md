@@ -1,4 +1,25 @@
 # OpenCV for nomacs
+This README provides some information on how to use OpenCV for nomacs.
+
+## Compile OpenCV
+Checkout this repositiory
+find the latest stable branch:
+```console
+$ git branch
+  3.3
+  3.3.1
+  3.3.1-b
+  3.4
+  4.0
+* 4.0.1
+  master
+```
+switch to the latest stable branch (assuming 4.0.1 is the latest):
+```console
+$ git checkout 4.0.1
+```
+now run `CMake`
+and compile OpenCV with your favorite compiler.
 
 ## Update upstream
 Checkout master & update
@@ -40,4 +61,8 @@ Since your branch name exists as tag, you might get this error message:
 $ git push --set-upstream origin 4.0.1
 error: src refspec 4.0.1 matches more than one.
 error: failed to push some refs to 'git@github.com:TUWien/opencv.git'
+```
+Use this command to disambiguate:
+```console
+$ git push --set-upstream origin refs/heads/4.0.1
 ```
