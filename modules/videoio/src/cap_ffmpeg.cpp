@@ -41,13 +41,28 @@
 
 #include "precomp.hpp"
 
+#if defined(HAVE_FFMPEG)
+
 #include <string>
 
-#if defined HAVE_FFMPEG && !defined _WIN32
+#if !defined(HAVE_FFMPEG_WRAPPER)
 #include "cap_ffmpeg_impl.hpp"
+
+#define icvCreateFileCapture_FFMPEG_p cvCreateFileCapture_FFMPEG
+#define icvReleaseCapture_FFMPEG_p cvReleaseCapture_FFMPEG
+#define icvGrabFrame_FFMPEG_p cvGrabFrame_FFMPEG
+#define icvRetrieveFrame_FFMPEG_p cvRetrieveFrame_FFMPEG
+#define icvSetCaptureProperty_FFMPEG_p cvSetCaptureProperty_FFMPEG
+#define icvGetCaptureProperty_FFMPEG_p cvGetCaptureProperty_FFMPEG
+#define icvCreateVideoWriter_FFMPEG_p cvCreateVideoWriter_FFMPEG
+#define icvReleaseVideoWriter_FFMPEG_p cvReleaseVideoWriter_FFMPEG
+#define icvWriteFrame_FFMPEG_p cvWriteFrame_FFMPEG
+
 #else
+
 #include "cap_ffmpeg_api.hpp"
-#endif
+
+namespace cv { namespace {
 
 static CvCreateFileCapture_Plugin icvCreateFileCapture_FFMPEG_p = 0;
 static CvReleaseCapture_Plugin icvReleaseCapture_FFMPEG_p = 0;
@@ -99,7 +114,7 @@ private:
 
     icvInitFFMPEG()
     {
-    #if defined _WIN32
+#if defined _WIN32
         const wchar_t* module_name_ = L"opencv_ffmpeg"
             CVAUX_STRW(CV_MAJOR_VERSION) CVAUX_STRW(CV_MINOR_VERSION) CVAUX_STRW(CV_SUBMINOR_VERSION)
         #if (defined _MSC_VER && defined _M_X64) || (defined __GNUC__ && defined __x86_64__)
@@ -161,7 +176,7 @@ private:
                 (CvReleaseVideoWriter_Plugin)GetProcAddress(icvFFOpenCV, "cvReleaseVideoWriter_FFMPEG");
             icvWriteFrame_FFMPEG_p =
                 (CvWriteFrame_Plugin)GetProcAddress(icvFFOpenCV, "cvWriteFrame_FFMPEG");
-
+# endif // _WIN32
 #if 0
             if( icvCreateFileCapture_FFMPEG_p != 0 &&
                 icvReleaseCapture_FFMPEG_p != 0 &&
@@ -181,20 +196,17 @@ private:
             }
 #endif
         }
-    #elif defined HAVE_FFMPEG
-        icvCreateFileCapture_FFMPEG_p = (CvCreateFileCapture_Plugin)cvCreateFileCapture_FFMPEG;
-        icvReleaseCapture_FFMPEG_p = (CvReleaseCapture_Plugin)cvReleaseCapture_FFMPEG;
-        icvGrabFrame_FFMPEG_p = (CvGrabFrame_Plugin)cvGrabFrame_FFMPEG;
-        icvRetrieveFrame_FFMPEG_p = (CvRetrieveFrame_Plugin)cvRetrieveFrame_FFMPEG;
-        icvSetCaptureProperty_FFMPEG_p = (CvSetCaptureProperty_Plugin)cvSetCaptureProperty_FFMPEG;
-        icvGetCaptureProperty_FFMPEG_p = (CvGetCaptureProperty_Plugin)cvGetCaptureProperty_FFMPEG;
-        icvCreateVideoWriter_FFMPEG_p = (CvCreateVideoWriter_Plugin)cvCreateVideoWriter_FFMPEG;
-        icvReleaseVideoWriter_FFMPEG_p = (CvReleaseVideoWriter_Plugin)cvReleaseVideoWriter_FFMPEG;
-        icvWriteFrame_FFMPEG_p = (CvWriteFrame_Plugin)cvWriteFrame_FFMPEG;
-    #endif
     }
 };
 
+
+}} // namespace
+#endif // HAVE_FFMPEG_WRAPPER
+
+
+
+namespace cv {
+namespace {
 
 class CvCapture_FFMPEG_proxy CV_FINAL : public cv::IVideoCapture
 {
@@ -228,19 +240,20 @@ public:
     }
     virtual bool open( const cv::String& filename )
     {
-        icvInitFFMPEG::Init();
         close();
 
-        if( !icvCreateFileCapture_FFMPEG_p )
-            return false;
         ffmpegCapture = icvCreateFileCapture_FFMPEG_p( filename.c_str() );
         return ffmpegCapture != 0;
     }
     virtual void close()
     {
-        if( ffmpegCapture && icvReleaseCapture_FFMPEG_p )
+        if (ffmpegCapture
+#if defined(HAVE_FFMPEG_WRAPPER)
+                && icvReleaseCapture_FFMPEG_p
+#endif
+)
             icvReleaseCapture_FFMPEG_p( &ffmpegCapture );
-        assert( ffmpegCapture == 0 );
+        CV_Assert(ffmpegCapture == 0);
         ffmpegCapture = 0;
     }
 
@@ -248,17 +261,25 @@ public:
     virtual int getCaptureDomain() CV_OVERRIDE { return CV_CAP_FFMPEG; }
 
 protected:
-    void* ffmpegCapture;
+    CvCapture_FFMPEG* ffmpegCapture;
 };
 
+} // namespace
 
-cv::Ptr<cv::IVideoCapture> cv::cvCreateFileCapture_FFMPEG_proxy(const cv::String& filename)
+cv::Ptr<cv::IVideoCapture> cvCreateFileCapture_FFMPEG_proxy(const std::string &filename)
 {
+#if defined(HAVE_FFMPEG_WRAPPER)
+    icvInitFFMPEG::Init();
+    if (!icvCreateFileCapture_FFMPEG_p)
+        return cv::Ptr<cv::IVideoCapture>();
+#endif
     cv::Ptr<CvCapture_FFMPEG_proxy> capture = cv::makePtr<CvCapture_FFMPEG_proxy>(filename);
     if (capture && capture->isOpened())
         return capture;
     return cv::Ptr<cv::IVideoCapture>();
 }
+
+namespace {
 
 class CvVideoWriter_FFMPEG_proxy CV_FINAL :
     public cv::IVideoWriter
@@ -267,6 +288,8 @@ public:
     CvVideoWriter_FFMPEG_proxy() { ffmpegWriter = 0; }
     CvVideoWriter_FFMPEG_proxy(const cv::String& filename, int fourcc, double fps, cv::Size frameSize, bool isColor) { ffmpegWriter = 0; open(filename, fourcc, fps, frameSize, isColor); }
     virtual ~CvVideoWriter_FFMPEG_proxy() { close(); }
+
+    int getCaptureDomain() const CV_OVERRIDE { return cv::CAP_FFMPEG; }
 
     virtual void write(cv::InputArray image ) CV_OVERRIDE
     {
@@ -278,19 +301,20 @@ public:
     }
     virtual bool open( const cv::String& filename, int fourcc, double fps, cv::Size frameSize, bool isColor )
     {
-        icvInitFFMPEG::Init();
         close();
-        if( !icvCreateVideoWriter_FFMPEG_p )
-            return false;
         ffmpegWriter = icvCreateVideoWriter_FFMPEG_p( filename.c_str(), fourcc, fps, frameSize.width, frameSize.height, isColor );
         return ffmpegWriter != 0;
     }
 
     virtual void close()
     {
-        if( ffmpegWriter && icvReleaseVideoWriter_FFMPEG_p )
+        if (ffmpegWriter
+#if defined(HAVE_FFMPEG_WRAPPER)
+                && icvReleaseVideoWriter_FFMPEG_p
+#endif
+        )
             icvReleaseVideoWriter_FFMPEG_p( &ffmpegWriter );
-        assert( ffmpegWriter == 0 );
+        CV_Assert(ffmpegWriter == 0);
         ffmpegWriter = 0;
     }
 
@@ -299,15 +323,238 @@ public:
     virtual bool isOpened() const CV_OVERRIDE { return ffmpegWriter != 0; }
 
 protected:
-    void* ffmpegWriter;
+    CvVideoWriter_FFMPEG* ffmpegWriter;
 };
 
+} // namespace
 
-cv::Ptr<cv::IVideoWriter> cv::cvCreateVideoWriter_FFMPEG_proxy(const cv::String& filename, int fourcc,
-                                                               double fps, cv::Size frameSize, int isColor)
+cv::Ptr<cv::IVideoWriter> cvCreateVideoWriter_FFMPEG_proxy(const std::string& filename, int fourcc, double fps, const cv::Size &frameSize, bool isColor)
 {
+#if defined(HAVE_FFMPEG_WRAPPER)
+    icvInitFFMPEG::Init();
+    if (!icvCreateVideoWriter_FFMPEG_p)
+        return cv::Ptr<cv::IVideoWriter>();
+#endif
     cv::Ptr<CvVideoWriter_FFMPEG_proxy> writer = cv::makePtr<CvVideoWriter_FFMPEG_proxy>(filename, fourcc, fps, frameSize, isColor != 0);
     if (writer && writer->isOpened())
         return writer;
     return cv::Ptr<cv::IVideoWriter>();
 }
+
+} // namespace
+
+#endif // defined(HAVE_FFMPEG)
+
+//==================================================================================================
+
+#if defined(BUILD_PLUGIN)
+
+#include "plugin_api.hpp"
+
+namespace cv {
+
+static
+CvResult CV_API_CALL cv_capture_open(const char* filename, int camera_index, CV_OUT CvPluginCapture* handle)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    *handle = NULL;
+    if (!filename)
+        return CV_ERROR_FAIL;
+    CV_UNUSED(camera_index);
+    CvCapture_FFMPEG_proxy *cap = 0;
+    try
+    {
+        cap = new CvCapture_FFMPEG_proxy(filename);
+        if (cap->isOpened())
+        {
+            *handle = (CvPluginCapture)cap;
+            return CV_ERROR_OK;
+        }
+    }
+    catch (...)
+    {
+    }
+    if (cap)
+        delete cap;
+    return CV_ERROR_FAIL;
+}
+
+static
+CvResult CV_API_CALL cv_capture_release(CvPluginCapture handle)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    CvCapture_FFMPEG_proxy* instance = (CvCapture_FFMPEG_proxy*)handle;
+    delete instance;
+    return CV_ERROR_OK;
+}
+
+
+static
+CvResult CV_API_CALL cv_capture_get_prop(CvPluginCapture handle, int prop, CV_OUT double* val)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    if (!val)
+        return CV_ERROR_FAIL;
+    try
+    {
+        CvCapture_FFMPEG_proxy* instance = (CvCapture_FFMPEG_proxy*)handle;
+        *val = instance->getProperty(prop);
+        return CV_ERROR_OK;
+    }
+    catch (...)
+    {
+        return CV_ERROR_FAIL;
+    }
+}
+
+static
+CvResult CV_API_CALL cv_capture_set_prop(CvPluginCapture handle, int prop, double val)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    try
+    {
+        CvCapture_FFMPEG_proxy* instance = (CvCapture_FFMPEG_proxy*)handle;
+        return instance->setProperty(prop, val) ? CV_ERROR_OK : CV_ERROR_FAIL;
+    }
+    catch(...)
+    {
+        return CV_ERROR_FAIL;
+    }
+}
+
+static
+CvResult CV_API_CALL cv_capture_grab(CvPluginCapture handle)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    try
+    {
+        CvCapture_FFMPEG_proxy* instance = (CvCapture_FFMPEG_proxy*)handle;
+        return instance->grabFrame() ? CV_ERROR_OK : CV_ERROR_FAIL;
+    }
+    catch(...)
+    {
+        return CV_ERROR_FAIL;
+    }
+}
+
+static
+CvResult CV_API_CALL cv_capture_retrieve(CvPluginCapture handle, int stream_idx, cv_videoio_retrieve_cb_t callback, void* userdata)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    try
+    {
+        CvCapture_FFMPEG_proxy* instance = (CvCapture_FFMPEG_proxy*)handle;
+        Mat img;
+        // TODO: avoid unnecessary copying
+        if (instance->retrieveFrame(stream_idx, img))
+            return callback(stream_idx, img.data, img.step, img.cols, img.rows, img.channels(), userdata);
+        return CV_ERROR_FAIL;
+    }
+    catch(...)
+    {
+        return CV_ERROR_FAIL;
+    }
+}
+
+static
+CvResult CV_API_CALL cv_writer_open(const char* filename, int fourcc, double fps, int width, int height, int isColor,
+                                    CV_OUT CvPluginWriter* handle)
+{
+    Size sz(width, height);
+    CvVideoWriter_FFMPEG_proxy* wrt = 0;
+    try
+    {
+        wrt = new CvVideoWriter_FFMPEG_proxy(filename, fourcc, fps, sz, isColor != 0);
+        if(wrt && wrt->isOpened())
+        {
+            *handle = (CvPluginWriter)wrt;
+            return CV_ERROR_OK;
+        }
+    }
+    catch(...)
+    {
+    }
+    if (wrt)
+        delete wrt;
+    return CV_ERROR_FAIL;
+}
+
+static
+CvResult CV_API_CALL cv_writer_release(CvPluginWriter handle)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    CvVideoWriter_FFMPEG_proxy* instance = (CvVideoWriter_FFMPEG_proxy*)handle;
+    delete instance;
+    return CV_ERROR_OK;
+}
+
+static
+CvResult CV_API_CALL cv_writer_get_prop(CvPluginWriter /*handle*/, int /*prop*/, CV_OUT double* /*val*/)
+{
+    return CV_ERROR_FAIL;
+}
+
+static
+CvResult CV_API_CALL cv_writer_set_prop(CvPluginWriter /*handle*/, int /*prop*/, double /*val*/)
+{
+    return CV_ERROR_FAIL;
+}
+
+static
+CvResult CV_API_CALL cv_writer_write(CvPluginWriter handle, const unsigned char *data, int step, int width, int height, int cn)
+{
+    if (!handle)
+        return CV_ERROR_FAIL;
+    try
+    {
+        CvVideoWriter_FFMPEG_proxy* instance = (CvVideoWriter_FFMPEG_proxy*)handle;
+        Mat img(Size(width, height), CV_MAKETYPE(CV_8U, cn), const_cast<uchar*>(data), step);
+        instance->write(img);
+        return CV_ERROR_OK;
+    }
+    catch(...)
+    {
+        return CV_ERROR_FAIL;
+    }
+}
+
+static const OpenCV_VideoIO_Plugin_API_preview plugin_api_v0 =
+{
+    {
+        sizeof(OpenCV_VideoIO_Plugin_API_preview), ABI_VERSION, API_VERSION,
+        CV_VERSION_MAJOR, CV_VERSION_MINOR, CV_VERSION_REVISION, CV_VERSION_STATUS,
+        "FFmpeg OpenCV Video I/O plugin"
+    },
+    /*  1*/CAP_FFMPEG,
+    /*  2*/cv_capture_open,
+    /*  3*/cv_capture_release,
+    /*  4*/cv_capture_get_prop,
+    /*  5*/cv_capture_set_prop,
+    /*  6*/cv_capture_grab,
+    /*  7*/cv_capture_retrieve,
+    /*  8*/cv_writer_open,
+    /*  9*/cv_writer_release,
+    /* 10*/cv_writer_get_prop,
+    /* 11*/cv_writer_set_prop,
+    /* 12*/cv_writer_write
+};
+
+} // namespace
+
+const OpenCV_VideoIO_Plugin_API_preview* opencv_videoio_plugin_init_v0(int requested_abi_version, int requested_api_version, void* /*reserved=NULL*/) CV_NOEXCEPT
+{
+    if (requested_abi_version != 0)
+        return NULL;
+    if (requested_api_version != 0)
+        return NULL;
+    return &cv::plugin_api_v0;
+}
+
+#endif // BUILD_PLUGIN

@@ -4,12 +4,12 @@ import numpy as np
 import argparse
 
 parser = argparse.ArgumentParser(description='Code for Feature Matching with FLANN tutorial.')
-parser.add_argument('--input1', help='Path to input image 1.', default='../data/box.png')
-parser.add_argument('--input2', help='Path to input image 2.', default='../data/box_in_scene.png')
+parser.add_argument('--input1', help='Path to input image 1.', default='box.png')
+parser.add_argument('--input2', help='Path to input image 2.', default='box_in_scene.png')
 args = parser.parse_args()
 
-img1 = cv.imread(args.input1, cv.IMREAD_GRAYSCALE)
-img2 = cv.imread(args.input2, cv.IMREAD_GRAYSCALE)
+img1 = cv.imread(cv.samples.findFile(args.input1), cv.IMREAD_GRAYSCALE)
+img2 = cv.imread(cv.samples.findFile(args.input2), cv.IMREAD_GRAYSCALE)
 if img1 is None or img2 is None:
     print('Could not open or find the images!')
     exit(0)
@@ -28,10 +28,9 @@ knn_matches = matcher.knnMatch(descriptors1, descriptors2, 2)
 #-- Filter matches using the Lowe's ratio test
 ratio_thresh = 0.7
 good_matches = []
-for matches in knn_matches:
-    if len(matches) > 1:
-        if matches[0].distance / matches[1].distance <= ratio_thresh:
-            good_matches.append(matches[0])
+for m,n in knn_matches:
+    if m.distance < ratio_thresh * n.distance:
+        good_matches.append(m)
 
 #-- Draw matches
 img_matches = np.empty((max(img1.shape[0], img2.shape[0]), img1.shape[1]+img2.shape[1], 3), dtype=np.uint8)

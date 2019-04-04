@@ -7,7 +7,7 @@
 
 #ifdef HAVE_LIBREALSENSE
 
-#include <librealsense/rs.hpp>
+#include <librealsense2/rs.hpp>
 
 namespace cv
 {
@@ -25,9 +25,16 @@ public:
     virtual bool retrieveFrame(int outputType, OutputArray frame) CV_OVERRIDE;
     virtual int getCaptureDomain() CV_OVERRIDE;
     virtual bool isOpened() const CV_OVERRIDE;
+
 protected:
-    rs::context mContext;
-    rs::device* mDev = nullptr;
+    rs2::pipeline mPipe;
+    rs2::frameset mData;
+    rs2::align    mAlign;
+
+    double getDepthGeneratorProperty(int propIdx) const;
+    double getImageGeneratorProperty(int propIdx) const;
+    double getIrGeneratorProperty(int propIdx) const;
+    double getCommonProperty(int propIdx) const;
 };
 
 }

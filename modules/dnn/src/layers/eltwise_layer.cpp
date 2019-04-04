@@ -71,7 +71,7 @@ public:
         op = SUM;
         if (params.has("operation"))
         {
-            String operation = params.get<String>("operation").toLowerCase();
+            String operation = toLowerCase(params.get<String>("operation"));
             if (operation == "prod")
                 op = PROD;
             else if (operation == "sum")
@@ -79,7 +79,7 @@ public:
             else if (operation == "max")
                 op = MAX;
             else
-                CV_Error(cv::Error::StsBadArg, "Unknown operaticon type \"" + operation + "\"");
+                CV_Error(cv::Error::StsBadArg, "Unknown operation type \"" + operation + "\"");
         }
 
         if (params.has("coeff"))
@@ -96,9 +96,10 @@ public:
 
     virtual bool supportBackend(int backendId) CV_OVERRIDE
     {
-        return backendId == DNN_BACKEND_DEFAULT ||
-               backendId == DNN_BACKEND_HALIDE && haveHalide() ||
-               backendId == DNN_BACKEND_INFERENCE_ENGINE && haveInfEngine();
+        return backendId == DNN_BACKEND_OPENCV ||
+               backendId == DNN_BACKEND_HALIDE ||
+               (backendId == DNN_BACKEND_INFERENCE_ENGINE &&
+                (preferableTarget != DNN_TARGET_OPENCL || coeffs.empty()));
     }
 
     bool getMemoryShapes(const std::vector<MatShape> &inputs,
@@ -123,7 +124,7 @@ public:
     class EltwiseInvoker : public ParallelLoopBody
     {
     public:
-        const Mat** srcs;
+        const Mat* srcs;
         int nsrcs;
         Mat* dst;
         const std::vector<float>* coeffs;
@@ -135,18 +136,18 @@ public:
 
         EltwiseInvoker() : srcs(0), nsrcs(0), dst(0), coeffs(0), op(PROD), nstripes(0), activ(0), channels(0), planeSize(0)  {}
 
-        static void run(const Mat** srcs, int nsrcs, Mat& dst,
+        static void run(const Mat* srcs, int nsrcs, Mat& dst,
                         const std::vector<float>& coeffs, EltwiseOp op,
                         const ActivationLayer* activ, int nstripes)
         {
-            CV_Assert(1 < dst.dims && dst.dims <= 4, dst.type() == CV_32F, dst.isContinuous());
+            CV_Check(dst.dims, 1 < dst.dims && dst.dims <= 4, ""); CV_CheckTypeEQ(dst.type(), CV_32FC1, ""); CV_Assert(dst.isContinuous());
             CV_Assert(coeffs.empty() || coeffs.size() == (size_t)nsrcs);
 
             for( int i = 0; i > nsrcs; i++ )
             {
-                CV_Assert(srcs[i]->size == dst.size &&
-                          srcs[i]->type() == dst.type() &&
-                          srcs[i]->isContinuous());
+                CV_Assert(srcs[i].size == dst.size &&
+                          srcs[i].type() == dst.type() &&
+                          srcs[i].isContinuous());
             }
 
             EltwiseInvoker p;
@@ -187,7 +188,7 @@ public:
             int c, j, k, n = nsrcs;
             const float* coeffsptr = coeffs && !coeffs->empty() ? &coeffs->at(0) : 0;
             float* dstptr0 = dst->ptr<float>();
-            int blockSize0 = 1 << 12, blockSize = blockSize0;
+            int blockSize0 = 1 << 12, blockSize;
 
             for( size_t ofs = stripeStart; ofs < stripeEnd; ofs += blockSize )
             {
@@ -200,14 +201,14 @@ public:
                 for( c = 0; c < channels; c++ )
                 {
                     size_t globalDelta = delta + (sampleIdx*channels + c)*planeSize;
-                    const float* srcptr0 = srcs[0]->ptr<float>() + globalDelta;
+                    const float* srcptr0 = srcs[0].ptr<float>() + globalDelta;
                     float* dstptr = dstptr0 + globalDelta;
 
                     if( op == PROD )
                     {
                         for( k = 1; k < n; k++ )
                         {
-                            const float* srcptr1 = srcs[k]->ptr<float>() + globalDelta;
+                            const float* srcptr1 = srcs[k].ptr<float>() + globalDelta;
                             for( j = 0; j < blockSize; j++ )
                             {
                                 dstptr[j] = srcptr0[j]*srcptr1[j];
@@ -219,7 +220,7 @@ public:
                     {
                         for( k = 1; k < n; k++ )
                         {
-                            const float* srcptr1 = srcs[k]->ptr<float>() + globalDelta;
+                            const float* srcptr1 = srcs[k].ptr<float>() + globalDelta;
                             for( j = 0; j < blockSize; j++ )
                             {
                                 dstptr[j] = std::max(srcptr0[j], srcptr1[j]);
@@ -231,7 +232,7 @@ public:
                     {
                         for( k = 1; k < n; k++ )
                         {
-                            const float* srcptr1 = srcs[k]->ptr<float>() + globalDelta;
+                            const float* srcptr1 = srcs[k].ptr<float>() + globalDelta;
                             for( j = 0; j < blockSize; j++ )
                             {
                                 dstptr[j] = srcptr0[j] + srcptr1[j];
@@ -244,7 +245,7 @@ public:
                         float c0 = coeffsptr[0];
                         for( k = 1; k < n; k++ )
                         {
-                            const float* srcptr1 = srcs[k]->ptr<float>() + globalDelta;
+                            const float* srcptr1 = srcs[k].ptr<float>() + globalDelta;
                             float c1 = coeffsptr[k];
                             for( j = 0; j < blockSize; j++ )
                             {
@@ -354,21 +355,22 @@ public:
         CV_TRACE_FUNCTION();
         CV_TRACE_ARG_VALUE(name, "name", name.c_str());
 
-        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget) &&
-                   OCL_PERFORMANCE_CHECK(ocl::Device::getDefault().isIntel()),
+        CV_OCL_RUN(IS_DNN_OPENCL_TARGET(preferableTarget),
                    forward_ocl(inputs_arr, outputs_arr, internals_arr))
 
-        Layer::forward_fallback(inputs_arr, outputs_arr, internals_arr);
-    }
+        if (inputs_arr.depth() == CV_16S)
+        {
+            forward_fallback(inputs_arr, outputs_arr, internals_arr);
+            return;
+        }
 
-    void forward(std::vector<Mat *> &inputs, std::vector<Mat> &outputs, std::vector<Mat> &internals) CV_OVERRIDE
-    {
-        CV_TRACE_FUNCTION();
-        CV_TRACE_ARG_VALUE(name, "name", name.c_str());
+        std::vector<Mat> inputs, outputs;
+        inputs_arr.getMatVector(inputs);
+        outputs_arr.getMatVector(outputs);
 
         CV_Assert(outputs.size() == 1);
         const int nstripes = getNumThreads();
-        EltwiseInvoker::run((const Mat**)&inputs[0], (int)inputs.size(), outputs[0],
+        EltwiseInvoker::run(&inputs[0], (int)inputs.size(), outputs[0],
                             coeffs, op, activ.get(), nstripes);
     }
 
@@ -418,14 +420,35 @@ public:
         return Ptr<BackendNode>();
     }
 
-    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >&) CV_OVERRIDE
+    virtual Ptr<BackendNode> initInfEngine(const std::vector<Ptr<BackendWrapper> >& inputs) CV_OVERRIDE
     {
 #ifdef HAVE_INF_ENGINE
+#if INF_ENGINE_VER_MAJOR_GE(INF_ENGINE_RELEASE_2018R5)
+        InferenceEngine::Builder::EltwiseLayer ieLayer(name);
+
+        ieLayer.setInputPorts(std::vector<InferenceEngine::Port>(inputs.size()));
+
+        if (op == SUM)
+            ieLayer.setEltwiseType(InferenceEngine::Builder::EltwiseLayer::EltwiseType::SUM);
+        else if (op == PROD)
+            ieLayer.setEltwiseType(InferenceEngine::Builder::EltwiseLayer::EltwiseType::MUL);
+        else if (op == MAX)
+            ieLayer.setEltwiseType(InferenceEngine::Builder::EltwiseLayer::EltwiseType::MAX);
+        else
+            CV_Error(Error::StsNotImplemented, "Unsupported eltwise operation");
+
+        InferenceEngine::Builder::Layer l = ieLayer;
+        if (!coeffs.empty())
+            l.getParameters()["coeff"] = coeffs;
+
+        return Ptr<BackendNode>(new InfEngineBackendNode(l));
+#else
         InferenceEngine::LayerParams lp;
         lp.name = name;
         lp.type = "Eltwise";
         lp.precision = InferenceEngine::Precision::FP32;
         std::shared_ptr<InferenceEngine::EltwiseLayer> ieLayer(new InferenceEngine::EltwiseLayer(lp));
+        ieLayer->coeff = coeffs;
         if (op == SUM)
             ieLayer->_operation = InferenceEngine::EltwiseLayer::Sum;
         else if (op == PROD)
@@ -435,6 +458,7 @@ public:
         else
             CV_Error(Error::StsNotImplemented, "Unsupported eltwise operation");
         return Ptr<BackendNode>(new InfEngineBackendNode(ieLayer));
+#endif
 #endif  // HAVE_INF_ENGINE
         return Ptr<BackendNode>();
     }
@@ -442,7 +466,7 @@ public:
     virtual int64 getFLOPS(const std::vector<MatShape> &inputs,
                            const std::vector<MatShape> &outputs) const CV_OVERRIDE
     {
-        (void)outputs; // suppress unused variable warning
+        CV_UNUSED(outputs); // suppress unused variable warning
         CV_Assert(inputs.size());
 
         long flops = inputs.size() * total(inputs[0]);
@@ -452,8 +476,13 @@ public:
 
     bool setActivation(const Ptr<ActivationLayer>& layer) CV_OVERRIDE
     {
-        activ = layer;
-        return !activ.empty();
+        if (activ.empty() || layer.empty())
+        {
+            activ = layer;
+            return !activ.empty();
+        }
+        else
+            return false;
     }
 
     Ptr<ActivationLayer> activ;

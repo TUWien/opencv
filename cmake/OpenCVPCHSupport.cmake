@@ -261,6 +261,7 @@ MACRO(ADD_PRECOMPILED_HEADER _targetName _input)
       )
 
     _PCH_GET_COMPILE_FLAGS(_compile_FLAGS)
+    list(APPEND _compile_FLAGS "${_PCH_include_prefix}\"${_path}\"")
 
     get_target_property(type ${_targetName} TYPE)
     if(type STREQUAL "SHARED_LIBRARY")
@@ -362,7 +363,7 @@ MACRO(ADD_NATIVE_PRECOMPILED_HEADER _targetName _input)
           endif()
         endforeach()
 
-        #also inlude ${oldProps} to have the same compile options
+        #also include ${oldProps} to have the same compile options
         GET_TARGET_PROPERTY(oldProps ${_targetName} COMPILE_FLAGS)
         if (oldProps MATCHES NOTFOUND)
             SET(oldProps "")
@@ -383,7 +384,7 @@ MACRO(ADD_NATIVE_PRECOMPILED_HEADER _targetName _input)
         # For Xcode, cmake needs my patch to process
         # GCC_PREFIX_HEADER and GCC_PRECOMPILE_PREFIX_HEADER as target properties
 
-        # When buiding out of the tree, precompiled may not be located
+        # When building out of the tree, precompiled may not be located
         # Use full path instead.
         GET_FILENAME_COMPONENT(fullPath ${_input} ABSOLUTE)
 

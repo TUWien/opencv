@@ -121,8 +121,10 @@ macro(ocv_assert)
 endmacro()
 
 macro(ocv_debug_message)
-#  string(REPLACE ";" " " __msg "${ARGN}")
-#  message(STATUS "${__msg}")
+  if(OPENCV_CMAKE_DEBUG_MESSAGES)
+    string(REPLACE ";" " " __msg "${ARGN}")
+    message(STATUS "${__msg}")
+  endif()
 endmacro()
 
 macro(ocv_check_environment_variables)
@@ -147,7 +149,9 @@ macro(ocv_path_join result_var P1 P2_)
   else()
     set(${result_var} "${P1}/${P2}")
   endif()
-  string(REGEX REPLACE "([/\\]?)[\\.][/\\]" "\\1" ${result_var} "${${result_var}}")
+  string(REPLACE "\\\\" "\\" ${result_var} "${${result_var}}")
+  string(REPLACE "//" "/" ${result_var} "${${result_var}}")
+  string(REGEX REPLACE "(^|[/\\])[\\.][/\\]" "\\1" ${result_var} "${${result_var}}")
   if("${${result_var}}" STREQUAL "")
     set(${result_var} ".")
   endif()
@@ -259,7 +263,7 @@ function(ocv_include_directories)
     ocv_is_opencv_directory(__is_opencv_dir "${dir}")
     if(__is_opencv_dir)
       list(APPEND __add_before "${dir}")
-    elseif(CV_GCC AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS "6.0" AND
+    elseif(((CV_GCC AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS "6.0") OR CV_CLANG) AND
            dir MATCHES "/usr/include$")
       # workaround for GCC 6.x bug
     else()
@@ -476,6 +480,44 @@ macro(ocv_check_flag_support lang flag varname base_options)
   ocv_check_compiler_flag("${_lang}" "${base_options} ${flag}" ${${varname}} ${ARGN})
 endmacro()
 
+macro(ocv_check_runtime_flag flag result)
+  set(_fname "${ARGN}")
+  if(NOT DEFINED ${result})
+    file(RELATIVE_PATH _rname "${CMAKE_SOURCE_DIR}" "${_fname}")
+    message(STATUS "Performing Runtime Test ${result} (check file: ${_rname})")
+    try_run(exec_return compile_result
+      "${CMAKE_BINARY_DIR}"
+      "${_fname}"
+      CMAKE_FLAGS "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}" # CMP0056 do this on new CMake
+      COMPILE_DEFINITIONS "${flag}"
+      OUTPUT_VARIABLE OUTPUT)
+
+    if(${compile_result})
+      if(exec_return EQUAL 0)
+        set(${result} 1 CACHE INTERNAL "Runtime Test ${result}")
+        message(STATUS "Performing Runtime Test ${result} - Success")
+      else()
+        message(STATUS "Performing Runtime Test ${result} - Failed(${exec_return})")
+        set(${result} 0 CACHE INTERNAL "Runtime Test ${result}")
+      endif()
+    else()
+      set(${result} 0 CACHE INTERNAL "Runtime Test ${result}")
+      message(STATUS "Performing Runtime Test ${result} - Compiling Failed")
+    endif()
+
+    if(NOT ${result})
+      file(APPEND ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeError.log
+        "Runtime Test failed:\n"
+        "    source file: '${_fname}'\n"
+        "    check option: '${flag}'\n"
+        "    exec return: ${exec_return}\n"
+        "===== BUILD AND RUNTIME LOG =====\n"
+        "${OUTPUT}\n"
+        "===== END =====\n\n")
+    endif()
+  endif()
+endmacro()
+
 # turns off warnings
 macro(ocv_warnings_disable)
   if(NOT ENABLE_NOISY_WARNINGS)
@@ -504,7 +546,7 @@ macro(ocv_warnings_disable)
       foreach(var ${_flag_vars})
         foreach(warning ${_gxx_warnings})
           if(NOT warning MATCHES "^-Wno-")
-            string(REGEX REPLACE "${warning}(=[^ ]*)?" "" ${var} "${${var}}")
+            string(REGEX REPLACE "(^|[ ]+)${warning}(=[^ ]*)?([ ]+|$)" " " ${var} "${${var}}")
             string(REPLACE "-W" "-Wno-" warning "${warning}")
           endif()
           ocv_check_flag_support(${var} "${warning}" _varname "")
@@ -567,14 +609,21 @@ endmacro()
 # Provides an option that the user can optionally select.
 # Can accept condition to control when option is available for user.
 # Usage:
-#   option(<option_variable> "help string describing the option" <initial value or boolean expression> [IF <condition>])
+#   option(<option_variable>
+#          "help string describing the option"
+#          <initial value or boolean expression>
+#          [VISIBLE_IF <condition>]
+#          [VERIFY <condition>])
 macro(OCV_OPTION variable description value)
   set(__value ${value})
   set(__condition "")
+  set(__verification)
   set(__varname "__value")
   foreach(arg ${ARGN})
-    if(arg STREQUAL "IF" OR arg STREQUAL "if")
+    if(arg STREQUAL "IF" OR arg STREQUAL "if" OR arg STREQUAL "VISIBLE_IF")
       set(__varname "__condition")
+    elseif(arg STREQUAL "VERIFY")
+      set(__varname "__verification")
     else()
       list(APPEND ${__varname} ${arg})
     endif()
@@ -601,14 +650,54 @@ macro(OCV_OPTION variable description value)
       option(${variable} "${description}" ${__value})
     endif()
   else()
-    if(DEFINED ${variable})
-      # TODO: message(WARNING "Option will be ignored: ${variable} (=${${variable}})")
+    if(DEFINED ${variable} AND "${${variable}}"  # emit warnings about turned ON options only.
+        AND NOT (OPENCV_HIDE_WARNING_UNSUPPORTED_OPTION OR "$ENV{OPENCV_HIDE_WARNING_UNSUPPORTED_OPTION}")
+    )
+      message(WARNING "Unexpected option: ${variable} (=${${variable}})\nCondition: IF (${__condition})")
     endif()
-    unset(${variable} CACHE)
+    if(OPENCV_UNSET_UNSUPPORTED_OPTION)
+      unset(${variable} CACHE)
+    endif()
+  endif()
+  if(__verification)
+    set(OPENCV_VERIFY_${variable} "${__verification}") # variable containing condition to verify
+    list(APPEND OPENCV_VERIFICATIONS "${variable}") # list of variable names (WITH_XXX;WITH_YYY;...)
   endif()
   unset(__condition)
   unset(__value)
 endmacro()
+
+
+# Check that each variable stored in OPENCV_VERIFICATIONS list
+# is consistent with actual detection result (stored as condition in OPENCV_VERIFY_...) variables
+function(ocv_verify_config)
+  set(broken_options)
+  foreach(var ${OPENCV_VERIFICATIONS})
+    set(evaluated FALSE)
+    if(${OPENCV_VERIFY_${var}})
+      set(evaluated TRUE)
+    endif()
+    status("Verifying ${var}=${${var}} => '${OPENCV_VERIFY_${var}}'=${evaluated}")
+    if (${var} AND NOT evaluated)
+      list(APPEND broken_options ${var})
+      message(WARNING
+        "Option ${var} is enabled but corresponding dependency "
+        "have not been found: \"${OPENCV_VERIFY_${var}}\" is FALSE")
+    elseif(NOT ${var} AND evaluated)
+      list(APPEND broken_options ${var})
+      message(WARNING
+        "Option ${var} is disabled or unset but corresponding dependency "
+        "have been explicitly turned on: \"${OPENCV_VERIFY_${var}}\" is TRUE")
+    endif()
+  endforeach()
+  if(broken_options)
+    string(REPLACE ";" "\n" broken_options "${broken_options}")
+    message(FATAL_ERROR
+      "Some dependencies have not been found or have been forced, "
+      "unset ENABLE_CONFIG_VERIFICATION option to ignore these failures "
+      "or change following options:\n${broken_options}")
+  endif()
+endfunction()
 
 # Usage: ocv_append_build_options(HIGHGUI FFMPEG)
 macro(ocv_append_build_options var_prefix pkg_prefix)
@@ -733,6 +822,11 @@ function(ocv_output_status msg)
   message(STATUS "${msg}")
   string(REPLACE "\\" "\\\\" msg "${msg}")
   string(REPLACE "\"" "\\\"" msg "${msg}")
+  string(REGEX REPLACE "^\n+|\n+$" "" msg "${msg}")
+  if(msg MATCHES "\n")
+    message(WARNING "String to be inserted to version_string.inc has an unexpected line break: '${msg}'")
+    string(REPLACE "\n" "\\n" msg "${msg}")
+  endif()
   set(OPENCV_BUILD_INFO_STR "${OPENCV_BUILD_INFO_STR}\"${msg}\\n\"\n" CACHE INTERNAL "")
 endfunction()
 
@@ -997,6 +1091,15 @@ function(ocv_convert_to_lib_name var)
   set(${var} ${tmp} PARENT_SCOPE)
 endfunction()
 
+if(MSVC AND BUILD_SHARED_LIBS)  # no defaults for static libs (modern CMake is required)
+  if(NOT CMAKE_VERSION VERSION_LESS 3.6.0)
+    option(INSTALL_PDB_COMPONENT_EXCLUDE_FROM_ALL "Don't install PDB files by default" ON)
+    option(INSTALL_PDB "Add install PDB rules" ON)
+  elseif(NOT CMAKE_VERSION VERSION_LESS 3.1.0)
+    option(INSTALL_PDB_COMPONENT_EXCLUDE_FROM_ALL "Don't install PDB files by default (not supported)" OFF)
+    option(INSTALL_PDB "Add install PDB rules" OFF)
+  endif()
+endif()
 
 # add install command
 function(ocv_install_target)
@@ -1028,9 +1131,10 @@ function(ocv_install_target)
   endif()
 
   if(MSVC)
-    if(INSTALL_PDB AND (NOT INSTALL_IGNORE_PDB))
-      set(__target "${ARGV0}")
-
+    set(__target "${ARGV0}")
+    if(INSTALL_PDB AND NOT INSTALL_IGNORE_PDB
+        AND NOT OPENCV_${__target}_PDB_SKIP
+    )
       set(__location_key "ARCHIVE")  # static libs
       get_target_property(__target_type ${__target} TYPE)
       if("${__target_type}" STREQUAL "SHARED_LIBRARY")
@@ -1062,16 +1166,28 @@ function(ocv_install_target)
           if(DEFINED INSTALL_PDB_COMPONENT AND INSTALL_PDB_COMPONENT)
             set(__pdb_install_component "${INSTALL_PDB_COMPONENT}")
           endif()
+          set(__pdb_exclude_from_all "")
+          if(INSTALL_PDB_COMPONENT_EXCLUDE_FROM_ALL)
+            if(NOT CMAKE_VERSION VERSION_LESS 3.6.0)
+              set(__pdb_exclude_from_all EXCLUDE_FROM_ALL)
+            else()
+              message(WARNING "INSTALL_PDB_COMPONENT_EXCLUDE_FROM_ALL requires CMake 3.6+")
+            endif()
+          endif()
+
 #          message(STATUS "Adding PDB file installation rule: target=${__target} dst=${__dst} component=${__pdb_install_component}")
           if("${__target_type}" STREQUAL "SHARED_LIBRARY")
-            install(FILES "$<TARGET_PDB_FILE:${__target}>" DESTINATION "${__dst}" COMPONENT ${__pdb_install_component} OPTIONAL)
+            install(FILES "$<TARGET_PDB_FILE:${__target}>" DESTINATION "${__dst}"
+                COMPONENT ${__pdb_install_component} OPTIONAL ${__pdb_exclude_from_all})
           else()
             # There is no generator expression similar to TARGET_PDB_FILE and TARGET_PDB_FILE can't be used: https://gitlab.kitware.com/cmake/cmake/issues/16932
             # However we still want .pdb files like: 'lib/Debug/opencv_core341d.pdb' or '3rdparty/lib/zlibd.pdb'
             install(FILES "$<TARGET_PROPERTY:${__target},ARCHIVE_OUTPUT_DIRECTORY>/$<CONFIG>/$<IF:$<BOOL:$<TARGET_PROPERTY:${__target},COMPILE_PDB_NAME_DEBUG>>,$<TARGET_PROPERTY:${__target},COMPILE_PDB_NAME_DEBUG>,$<TARGET_PROPERTY:${__target},COMPILE_PDB_NAME>>.pdb"
-                DESTINATION "${__dst}" CONFIGURATIONS Debug COMPONENT ${__pdb_install_component} OPTIONAL)
+                DESTINATION "${__dst}" CONFIGURATIONS Debug
+                COMPONENT ${__pdb_install_component} OPTIONAL ${__pdb_exclude_from_all})
             install(FILES "$<TARGET_PROPERTY:${__target},ARCHIVE_OUTPUT_DIRECTORY>/$<CONFIG>/$<IF:$<BOOL:$<TARGET_PROPERTY:${__target},COMPILE_PDB_NAME_RELEASE>>,$<TARGET_PROPERTY:${__target},COMPILE_PDB_NAME_RELEASE>,$<TARGET_PROPERTY:${__target},COMPILE_PDB_NAME>>.pdb"
-                DESTINATION "${__dst}" CONFIGURATIONS Release COMPONENT ${__pdb_install_component} OPTIONAL)
+                DESTINATION "${__dst}" CONFIGURATIONS Release
+                COMPONENT ${__pdb_install_component} OPTIONAL ${__pdb_exclude_from_all})
           endif()
         else()
           message(WARNING "PDB files installation is not supported (need CMake >= 3.1.0)")
@@ -1084,13 +1200,17 @@ endfunction()
 # ocv_install_3rdparty_licenses(<library-name> <filename1> [<filename2> ..])
 function(ocv_install_3rdparty_licenses library)
   foreach(filename ${ARGN})
+    set(filepath "${filename}")
+    if(NOT IS_ABSOLUTE "${filepath}")
+      set(filepath "${CMAKE_CURRENT_LIST_DIR}/${filepath}")
+    endif()
     get_filename_component(name "${filename}" NAME)
     install(
-      FILES "${filename}"
-      DESTINATION "${OPENCV_OTHER_INSTALL_PATH}/licenses"
+      FILES "${filepath}"
+      DESTINATION "${OPENCV_LICENSES_INSTALL_PATH}"
       COMPONENT licenses
       RENAME "${library}-${name}"
-      OPTIONAL)
+    )
   endforeach()
 endfunction()
 
@@ -1167,14 +1287,6 @@ macro(ocv_parse_header2 LIBNAME HDR_PATH VARNAME)
     else()
       set(${LIBNAME}_VERSION_STRING "${${LIBNAME}_VERSION_STRING}" ${ARGN})
     endif()
-  endif()
-endmacro()
-
-# read single version info from the pkg file
-macro(ocv_parse_pkg LIBNAME PKG_PATH SCOPE)
-  if(EXISTS "${PKG_PATH}/${LIBNAME}.pc")
-    file(STRINGS "${PKG_PATH}/${LIBNAME}.pc" line_to_parse REGEX "^Version:[ \t]+[0-9.]*.*$" LIMIT_COUNT 1)
-    STRING(REGEX REPLACE ".*Version: ([^ ]+).*" "\\1" ALIASOF_${LIBNAME}_VERSION "${line_to_parse}" )
   endif()
 endmacro()
 
@@ -1624,7 +1736,7 @@ endif()
 
 macro(ocv_git_describe var_name path)
   if(GIT_FOUND)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" describe --tags --tags --exact-match --dirty
+    execute_process(COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match --dirty
       WORKING_DIRECTORY "${path}"
       OUTPUT_VARIABLE ${var_name}
       RESULT_VARIABLE GIT_RESULT
