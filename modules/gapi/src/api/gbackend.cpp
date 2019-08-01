@@ -8,8 +8,8 @@
 #include "precomp.hpp"
 #include <memory> // unique_ptr
 
-#include "opencv2/gapi/gkernel.hpp"
-#include "opencv2/gapi/own/convert.hpp"
+#include <opencv2/gapi/gkernel.hpp>
+#include <opencv2/gapi/own/convert.hpp>
 
 #include "api/gbackend_priv.hpp"
 #include "backends/common/gbackend.hpp"
@@ -43,6 +43,11 @@ void cv::gapi::GBackend::Priv::addBackendPasses(ade::ExecutionEngineSetupContext
 {
     // Do nothing by default, plugins may override this to
     // add custom (backend-specific) graph transformations
+}
+
+cv::gapi::GKernelPackage cv::gapi::GBackend::Priv::auxiliaryKernels() const
+{
+    return {};
 }
 
 // GBackend public implementation //////////////////////////////////////////////
@@ -98,7 +103,7 @@ void bindInArg(Mag& mag, const RcDesc &rc, const GRunArg &arg, bool is_umat)
                 auto& mag_umat = mag.template slot<cv::UMat>()[rc.id];
                 mag_umat = to_ocv(util::get<cv::gapi::own::Mat>(arg)).getUMat(ACCESS_READ);
 #else
-                util::throw_error(std::logic_error("UMat is not supported in stadnalone build"));
+                util::throw_error(std::logic_error("UMat is not supported in standalone build"));
 #endif // !defined(GAPI_STANDALONE)
             }
             else
@@ -349,5 +354,24 @@ void writeBack(const Mag& mag, const RcDesc &rc, GRunArgP &g_arg, bool is_umat)
 }
 
 } // namespace magazine
+
+void createMat(const cv::GMatDesc desc, cv::gapi::own::Mat& mat)
+{
+    const auto type = desc.planar ? desc.depth : CV_MAKETYPE(desc.depth, desc.chan);
+    const auto size = desc.planar ? cv::gapi::own::Size{desc.size.width, desc.size.height*desc.chan}
+                                  : desc.size;
+    mat.create(size, type);
+}
+
+#if !defined(GAPI_STANDALONE)
+void createMat(const cv::GMatDesc desc, cv::Mat& mat)
+{
+    const auto type = desc.planar ? desc.depth : CV_MAKETYPE(desc.depth, desc.chan);
+    const auto size = desc.planar ? cv::Size{desc.size.width, desc.size.height*desc.chan}
+                                  : cv::gapi::own::to_ocv(desc.size);
+    mat.create(size, type);
+}
+#endif
+
 } // namespace gimpl
 } // namespace cv
