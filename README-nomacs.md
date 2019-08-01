@@ -18,8 +18,7 @@ switch to the latest stable branch (assuming 4.0.1 is the latest):
 ```console
 $ git checkout 4.0.1
 ```
-now run `CMake`
-and compile OpenCV with your favorite compiler.
+now run `CMake` and compile OpenCV with your favorite compiler.
 
 ## Update upstream
 Checkout master & update
