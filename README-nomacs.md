@@ -65,3 +65,7 @@ Use this command to disambiguate:
 ```console
 $ git push --set-upstream origin refs/heads/4.0.1
 ```
+To add our changes use:
+```console
+git merge refs/heads/4.0.1
+```
