@@ -837,7 +837,7 @@ void TFImporter::populateNet(Net dstNet)
                 CV_Assert(paddings.type() == CV_32SC1);
                 if (paddings.total() == 8)
                 {
-                    // Perhabs, we have NHWC padding dimensions order.
+                    // Perhaps, we have NHWC padding dimensions order.
                     //  N    H    W    C
                     // 0 1  2 3  4 5  6 7
                     std::swap(paddings.at<int32_t>(2), paddings.at<int32_t>(6));
@@ -1129,15 +1129,14 @@ void TFImporter::populateNet(Net dstNet)
             if (value_id.find(layer.input(1)) != value_id.end())
             {
                 Mat newShape = getTensorContent(getConstBlob(layer, value_id, 1));
-
+                if (newShape.total() == 4)
+                {
+                    // NHWC->NCHW
+                    std::swap(*newShape.ptr<int32_t>(0, 2), *newShape.ptr<int32_t>(0, 3));
+                    std::swap(*newShape.ptr<int32_t>(0, 1), *newShape.ptr<int32_t>(0, 2));
+                }
                 if (inpLayout == DATA_LAYOUT_NHWC)
                 {
-                    if (newShape.total() == 4)
-                    {
-                        // NHWC->NCHW
-                        std::swap(*newShape.ptr<int32_t>(0, 2), *newShape.ptr<int32_t>(0, 3));
-                        std::swap(*newShape.ptr<int32_t>(0, 1), *newShape.ptr<int32_t>(0, 2));
-                    }
                     if (newShape.total() != 4 || newShape.at<int>(1) == 1)
                     {
                         LayerParams permLP;
@@ -1351,6 +1350,8 @@ void TFImporter::populateNet(Net dstNet)
             setKSize(layerParams, layer);
             setStrides(layerParams, layer);
             setPadding(layerParams, layer);
+            // Test_TensorFlow_nets.EAST_text_detection/1, NGRAPH/CPU
+            layerParams.set("ceil_mode", false);
 
             int id = dstNet.addLayer(name, "Pooling", layerParams);
             layer_id[name] = id;
@@ -1586,7 +1587,7 @@ void TFImporter::populateNet(Net dstNet)
                 }
             }
         }
-        else if (type == "FusedBatchNorm")
+        else if (type == "FusedBatchNorm" || type == "FusedBatchNormV3")
         {
             // op: "FusedBatchNorm"
             // input: "input"

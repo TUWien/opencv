@@ -12,7 +12,7 @@ endif()
 if(((NOT CMAKE_VERSION VERSION_LESS "3.9.0")  # requires https://gitlab.kitware.com/cmake/cmake/merge_requests/663
       OR OPENCV_CUDA_FORCE_EXTERNAL_CMAKE_MODULE)
     AND NOT OPENCV_CUDA_FORCE_BUILTIN_CMAKE_MODULE)
-  ocv_update(CUDA_LINK_LIBRARIES_KEYWORD "LINK_PRIVATE")
+  ocv_update(CUDA_LINK_LIBRARIES_KEYWORD "PRIVATE")
   find_host_package(CUDA "${MIN_VER_CUDA}" QUIET)
 else()
   # Use OpenCV's patched "FindCUDA" module
@@ -368,7 +368,7 @@ if(HAVE_CUDA)
     endif()
   endif()
 
-  set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} ${CUDA_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_npp_LIBRARY})
+  set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} ${CUDA_LIBRARIES} ${CUDA_npp_LIBRARY})
   if(HAVE_CUBLAS)
     set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} ${CUDA_cublas_LIBRARY})
   endif()

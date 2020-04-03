@@ -125,6 +125,20 @@ bool required_opencv_test_namespace = false;  // compilation check for non-refac
 namespace cvtest
 {
 
+details::SkipTestExceptionBase::SkipTestExceptionBase(bool handlingTags)
+{
+    if (!handlingTags)
+    {
+        testTagIncreaseSkipCount("skip_other", true, true);
+    }
+}
+details::SkipTestExceptionBase::SkipTestExceptionBase(const cv::String& message, bool handlingTags)
+{
+    if (!handlingTags)
+        testTagIncreaseSkipCount("skip_other", true, true);
+    this->msg = message;
+}
+
 uint64 param_seed = 0x12345678; // real value is passed via parseCustomOptions function
 
 static std::string path_join(const std::string& prefix, const std::string& subpath)
@@ -350,7 +364,13 @@ void BaseTest::run( int start_from )
             return;
 
         if( validate_test_results( test_case_idx ) < 0 || ts->get_err_code() < 0 )
+        {
+            std::stringstream ss;
+            dump_test_case(test_case_idx, &ss);
+            std::string s = ss.str();
+            ts->printf( TS::LOG, "%s", s.c_str());
             return;
+        }
     }
 }
 
@@ -398,6 +418,12 @@ int BaseTest::update_progress( int progress, int test_case_idx, int count, doubl
     }
 
     return progress;
+}
+
+
+void BaseTest::dump_test_case(int test_case_idx, std::ostream* out)
+{
+    *out << "test_case_idx = " << test_case_idx << std::endl;
 }
 
 
@@ -512,8 +538,9 @@ string TS::str_from_code( const TS::FailureCode code )
     return "Generic/Unknown";
 }
 
-static int tsErrorCallback( int status, const char* func_name, const char* err_msg, const char* file_name, int line, TS* ts )
+static int tsErrorCallback( int status, const char* func_name, const char* err_msg, const char* file_name, int line, void* data )
 {
+    TS* ts = (TS*)data;
     const char* delim = std::string(err_msg).find('\n') == std::string::npos ? "" : "\n";
     ts->printf(TS::LOG, "OpenCV Error:\n\t%s (%s%s) in %s, file %s, line %d\n", cvErrorStr(status), delim, err_msg, func_name[0] != 0 ? func_name : "unknown function", file_name, line);
     return 0;
@@ -835,6 +862,17 @@ void testTearDown()
         ::testing::Test::RecordProperty("total_memory_usage",
                 cv::format("%llu", (unsigned long long)(memory_usage + ocl_memory_usage)));
     }
+}
+
+bool checkBigDataTests()
+{
+    if (!runBigDataTests)
+    {
+        testTagIncreaseSkipCount("skip_bigdata", true, true);
+        printf("[     SKIP ] BigData tests are disabled\n");
+        return false;
+    }
+    return true;
 }
 
 void parseCustomOptions(int argc, char **argv)
